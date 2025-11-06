@@ -141,6 +141,12 @@ filelock = "^3.20.0"
 atomicwrites = "^1.4.1"
 zstandard = "^0.25.0"
 
+# CCXT
+#
+# Needed only for GMX CCXT API.
+# Very large dependency.
+ccxt = {version = "^4.5.16", optional = true}
+
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.11.13"
@@ -156,6 +162,7 @@ docs = ["Sphinx", "sphinx-rtd-theme", "sphinx-sitemap", "sphinx-autodoc-typehint
 data = ["jupyter", "tqdm", "pandas", "gql", "matplotlib", "plotly", "pyarrow", "numpy", "tenacity", "kaleido", "ffn"]
 test = ["pytest-xdist"]
 hypersync = ["hypersync"]
+ccxt = ["ccxt"]
 #tester = ["eth-tester"]
 # To install the web3py version based dependencies
 web3v6 = ["eth-tester", "evm-trace", "safe-eth-py", "eth-pydantic-types", "multicall", "eth-account", "eth-typing"]

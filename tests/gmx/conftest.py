@@ -1027,7 +1027,6 @@ def arbitrum_fork_config(
     anvil_private_key,
     large_weth_holder_arbitrum,
     large_usdc_holder_arbitrum,
-    wallet_with_all_tokens,
 ) -> GMXConfig:
     """
     GMX config for Arbitrum mainnet fork with funded wallet.

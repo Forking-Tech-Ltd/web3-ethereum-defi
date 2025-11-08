@@ -3,7 +3,6 @@ import os
 from typing import Generator, Any
 
 import eth_abi
-from eth_pydantic_types import HexStr
 from eth_utils import to_checksum_address, keccak
 from web3 import Web3, HTTPProvider
 
@@ -340,6 +339,8 @@ def anvil_chain_fork(
 @pytest.fixture()
 def web3_arbitrum_fork(anvil_chain_fork: str) -> Web3:
     """Set up a local unit testing blockchain with the forked chain."""
+    from tests.gmx.fork_helpers import setup_mock_oracle
+
     web3 = Web3(
         HTTPProvider(
             anvil_chain_fork,
@@ -348,6 +349,12 @@ def web3_arbitrum_fork(anvil_chain_fork: str) -> Web3:
     )
     install_chain_middleware(web3)
     web3.eth.set_gas_price_strategy(node_default_gas_price_strategy)
+
+    # Setup mock oracle with fixed prices (ETH=$3450, USDC=$1)
+    MOCK_ETH_PRICE = 3450
+    MOCK_USDC_PRICE = 1
+    setup_mock_oracle(web3, eth_price_usd=MOCK_ETH_PRICE, usdc_price_usd=MOCK_USDC_PRICE)
+
     return web3
 
 
@@ -681,7 +688,7 @@ def wallet_with_all_tokens(
 @pytest.fixture()
 def anvil_private_key() -> HexAddress:
     """The default private key for the first Anvil test account."""
-    return HexAddress(HexStr("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"))
+    return HexAddress("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 
 
 def _approve_tokens_for_config(

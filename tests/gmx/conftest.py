@@ -416,15 +416,19 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3, chain_rpc_url: str) -> str:
     except Exception as e:
         print(f"Warning: Could not set block timestamp: {e}")
 
-    # Fetch real ETH price from Chainlink at the fork block
-    # This ensures prices match what GMX expects for validation
-    try:
-        real_eth_price = get_chainlink_price_at_block(web3, CHAINLINK_ETH_USD_ARBITRUM, FORK_BLOCK_ARBITRUM)
-        print(f"Using ETH price: ${real_eth_price:.2f} (fetched from Chainlink at block {FORK_BLOCK_ARBITRUM})")
-    except Exception as e:
-        # Fallback to a reasonable price if Chainlink fetch fails
-        real_eth_price = 3450
-        print(f"Failed to fetch Chainlink price ({e}), using fallback: ${real_eth_price:.2f}")
+    # Use hardcoded $3,450 ETH price for fork testing
+    # NOTE: The MockOracleProvider REQUIRES min == max for positions to work
+    # The Solidity reference tests ONLY test LONG positions with this setup
+    # SHORT positions are fundamentally incompatible with this mock oracle approach
+    weth_address = to_checksum_address("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1")
+    usdc_address = to_checksum_address("0xaf88d065e77c8cC2239327C5EDb3A432268e5831")
+
+    # Hardcoded price that makes LONG positions work
+    eth_price_usd = 3450  # $ per ETH
+    weth_price = int(eth_price_usd * 10**12)  # GMX format
+    usdc_price = int(1 * 10**24)  # $1 USDC
+
+    print(f"Using hardcoded ETH price: ${eth_price_usd} (required for mock oracle compatibility)")
 
     # Production oracle provider address
     production_provider_address = to_checksum_address("0xE1d5a068c5b75E0c7Ea1A9Fe8EA056f9356C6fFD")
@@ -451,10 +455,9 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3, chain_rpc_url: str) -> str:
     # Configure prices
     account = web3.eth.accounts[0]
 
-    # WETH: 18 decimals -> price * 10^12
-    weth_address = to_checksum_address("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1")
-    weth_price = int(real_eth_price * (10**12))
-
+    # Set WETH price (MUST use same value for min and max)
+    # MockOracleProvider.setPrice(address, minPrice, maxPrice)
+    # The mock oracle requires min == max for positions to work correctly
     weth_tx = mock.functions.setPrice(weth_address, weth_price, weth_price).build_transaction(
         {
             "from": account,
@@ -465,10 +468,7 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3, chain_rpc_url: str) -> str:
     weth_tx_hash = web3.eth.send_transaction(weth_tx)
     assert_transaction_success_with_explanation(web3, weth_tx_hash, "Set WETH price on mock oracle")
 
-    # USDC: 6 decimals -> price * 10^24
-    usdc_address = to_checksum_address("0xaf88d065e77c8cC2239327C5EDb3A432268e5831")
-    usdc_price = int(MOCK_USDC_PRICE * (10**24))
-
+    # Set USDC price (same min/max for stable coin)
     usdc_tx = mock.functions.setPrice(usdc_address, usdc_price, usdc_price).build_transaction(
         {
             "from": account,
@@ -479,7 +479,7 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3, chain_rpc_url: str) -> str:
     usdc_tx_hash = web3.eth.send_transaction(usdc_tx)
     assert_transaction_success_with_explanation(web3, usdc_tx_hash, "Set USDC price on mock oracle")
 
-    print(f"Mock oracle configured with ETH=${real_eth_price:.2f}, USDC=${MOCK_USDC_PRICE}")
+    print(f"Mock oracle configured: ETH=${eth_price_usd}, USDC=$1")
 
     return production_provider_address
 

@@ -84,10 +84,12 @@ class GetOpenPositions(GetData):
 
                     # Filter out closed positions (those with zero or near-zero size)
                     # GMX contracts may return positions that have been closed but still exist in state
-                    if processed_position["position_size"] <= 0:
+                    # Check raw size directly from contract data for accuracy
+                    raw_size_in_usd = raw_position[1][0]
+                    if raw_size_in_usd == 0:
                         logging.debug(
-                            f"Skipping closed position for {processed_position['market_symbol']} "
-                            f"(size: {processed_position['position_size']})"
+                            f"Skipping closed position for {processed_position.get('market_symbol', 'UNKNOWN')} "
+                            f"(raw_size: {raw_size_in_usd})"
                         )
                         continue
 

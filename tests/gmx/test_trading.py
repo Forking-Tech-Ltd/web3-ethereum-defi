@@ -240,16 +240,23 @@ def test_open_and_close_position(
     position_key, position = list(positions_after_open.items())[0]
     position_size_usd = position["position_size"]
     collateral_amount_usd = position["initial_collateral_amount_usd"]
+
     assert position_size_usd > 0, "Position size should be > 0"
+    assert collateral_amount_usd > 0, "Collateral USD should be > 0"
 
     # === Step 3: Close position ===
+    # Note: initial_collateral_delta should be in token amount, not USD
+    # Get raw collateral and convert to token amount
+    raw_collateral_wei = position["initial_collateral_amount"]
+    collateral_amount_tokens = raw_collateral_wei / 10**18
+
     close_order_result = trading_manager_fork.close_position(
         market_symbol="ETH",
         collateral_symbol="ETH",
         start_token_symbol="ETH",  # Receive ETH when closing
         is_long=True,
         size_delta_usd=position_size_usd,  # Close full position
-        initial_collateral_delta=collateral_amount_usd,  # Withdraw all collateral
+        initial_collateral_delta=collateral_amount_tokens,  # Withdraw all collateral (in token amount!)
         slippage_percent=0.005,
         execution_buffer=2.2,
     )

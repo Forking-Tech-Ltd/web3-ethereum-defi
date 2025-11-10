@@ -103,10 +103,14 @@ class GetOpenPositions(GetData):
                     processed_positions[key] = processed_position
                 except KeyError as e:
                     logging.error(f"Incompatible market: {e}")
+                    print(f"[POSITIONS ERROR] KeyError: {e}")
                     # Continue processing other positions instead of failing completely
                     continue
                 except Exception as e:
+                    import traceback
                     logging.error(f"Error processing position: {e}")
+                    print(f"[POSITIONS ERROR] Exception: {e}")
+                    print(traceback.format_exc())
                     continue
 
             return processed_positions
@@ -180,9 +184,8 @@ class GetOpenPositions(GetData):
         index_token_decimals = chain_tokens[index_token_address]["decimals"]
         entry_price = (raw_position[1][0] / raw_position[1][1]) / 10 ** (30 - index_token_decimals)
 
-        # Calculate leverage
+        # Calculate leverage - need collateral token decimals for later USD calculation
         collateral_token_decimals = chain_tokens[collateral_token_address]["decimals"]
-        leverage = (raw_position[1][0] / 10**30) / (raw_position[1][2] / 10**collateral_token_decimals)
 
         # Get oracle prices with error handling
         try:
@@ -229,15 +232,6 @@ class GetOpenPositions(GetData):
             logging.warning(f"Could not get oracle price for {index_token_address}: {e}")
             mark_price = entry_price  # Fallback to entry price
 
-        # Calculate profit percentage with proper long/short logic
-        if entry_price > 0:
-            if raw_position[2][0]:  # is_long
-                percent_profit = ((mark_price / entry_price) - 1) * leverage * 100
-            else:  # is_short
-                percent_profit = (1 - (mark_price / entry_price)) * leverage * 100
-        else:
-            percent_profit = 0
-
         # Position struct indices (GMX v2.2):
         # raw_position[0] = Addresses (account, market, collateralToken)
         # raw_position[1] = Numbers:
@@ -253,6 +247,47 @@ class GetOpenPositions(GetData):
         #   [9] decreasedAtTime
         # raw_position[2] = Flags (isLong)
 
+        # Calculate collateral USD value using mark price
+        collateral_amount_tokens = raw_position[1][2] / 10**collateral_token_decimals
+        # For same-asset collateral (e.g., ETH collateral for ETH position), use mark_price
+        # For different collateral, we'd need to look up that token's price
+        if collateral_token_address.lower() == index_token_address.lower():
+            collateral_amount_usd = collateral_amount_tokens * mark_price
+        else:
+            # Different collateral - need to get its price
+            try:
+                prices = OraclePrices(chain=self.config.chain).get_recent_prices()
+                collateral_oracle_address = TESTNET_TO_MAINNET_ORACLE_TOKENS.get(
+                    collateral_token_address,
+                    collateral_token_address,
+                )
+                if collateral_oracle_address in prices:
+                    collateral_price_data = prices[collateral_oracle_address]
+                    collateral_price = np.median([
+                        float(collateral_price_data["maxPriceFull"]),
+                        float(collateral_price_data["minPriceFull"]),
+                    ]) / 10 ** (30 - collateral_token_decimals)
+                    collateral_amount_usd = collateral_amount_tokens * collateral_price
+                else:
+                    # Fallback: assume stablecoin if we can't get price
+                    collateral_amount_usd = collateral_amount_tokens
+            except Exception as e:
+                logging.warning(f"Could not get collateral price for {collateral_token_address}: {e}")
+                collateral_amount_usd = collateral_amount_tokens
+
+        # Calculate leverage using USD values
+        position_size_usd = raw_position[1][0] / 10**30
+        leverage = position_size_usd / collateral_amount_usd if collateral_amount_usd > 0 else 0
+
+        # Calculate profit percentage with proper long/short logic
+        if entry_price > 0:
+            if raw_position[2][0]:  # is_long
+                percent_profit = ((mark_price / entry_price) - 1) * leverage * 100
+            else:  # is_short
+                percent_profit = (1 - (mark_price / entry_price)) * leverage * 100
+        else:
+            percent_profit = 0
+
         return {
             "account": raw_position[0][0],
             "market": raw_position[0][1],
@@ -262,7 +297,7 @@ class GetOpenPositions(GetData):
             "size_in_tokens": raw_position[1][1],
             "entry_price": entry_price,
             "initial_collateral_amount": raw_position[1][2],
-            "initial_collateral_amount_usd": raw_position[1][2] / 10**collateral_token_decimals,
+            "initial_collateral_amount_usd": collateral_amount_usd,
             "leverage": leverage,
             "pending_impact_amount": raw_position[1][3],
             "borrowing_factor": raw_position[1][4],

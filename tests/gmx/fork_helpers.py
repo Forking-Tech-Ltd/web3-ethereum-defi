@@ -517,7 +517,7 @@ def execute_order_as_keeper(web3: Web3, order_key: bytes):
         )
 
         # Use assert_transaction_success_with_explanation to get detailed error info
-        # assert_transaction_success_with_explanation(web3, tx_hash, "Order execution by keeper")
+        assert_transaction_success_with_explanation(web3, tx_hash, "Order execution by keeper")
 
         receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
         logger.info("✓ Order executed successfully")

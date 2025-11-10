@@ -131,10 +131,10 @@ def test_open_short_position(
     # === Step 1: Create order ===
     order_result = trading_manager_fork.open_position(
         market_symbol="ETH",
-        collateral_symbol="ETH",
-        start_token_symbol="ETH",
+        collateral_symbol="USDC",  # Use USDC for short positions
+        start_token_symbol="USDC",  # Start with USDC
         is_long=False,
-        size_delta_usd=10,
+        size_delta_usd=100,  # Increase position size to $100
         leverage=2.5,
         slippage_percent=0.005,
         execution_buffer=2.2,

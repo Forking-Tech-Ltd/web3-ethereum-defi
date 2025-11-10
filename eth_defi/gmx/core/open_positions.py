@@ -5,8 +5,6 @@ This module provides access to open positions data for user addresses.
 """
 
 import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any
 
 import numpy as np
@@ -17,12 +15,13 @@ from eth_defi.gmx.core.get_data import GetData
 from eth_defi.gmx.core.oracle import OraclePrices
 from eth_defi.gmx.contracts import (
     get_contract_addresses,
-    get_tokens_address_dict,
-    NETWORK_TOKENS,
+    get_tokens_metadata_dict,
+    NETWORK_TOKENS_METADATA,
     TESTNET_TO_MAINNET_ORACLE_TOKENS,
 )
 from eth_defi.gmx.types import MarketData
-from eth_defi.token import fetch_erc20_details
+
+logger = logging.getLogger(__name__)
 
 
 class GetOpenPositions(GetData):
@@ -65,16 +64,16 @@ class GetOpenPositions(GetData):
                 # 2. No positions for this address
                 # 3. Network/RPC issues
                 error_msg = str(decode_error)
-                if "Could not decode" in error_msg or "InsufficientDataBytes" in error_msg:
-                    logging.debug(f"Could not decode positions for address {checksum_address}: {decode_error}")
-                    # Return empty dict for addresses with no valid positions
-                    return {}
-                else:
-                    # Re-raise other errors
-                    raise
+                logger.error(
+                    f"Could not decode positions for address {checksum_address}: {decode_error}",
+                )
+                # Return empty dict for addresses with no valid positions
+                raise decode_error
 
             if len(raw_positions) == 0:
-                logging.info(f'No positions open for address: "{checksum_address}" on {self.config.chain.title()}.')
+                print(
+                    f'No positions open for address: "{checksum_address}" on {self.config.chain.title()}.',
+                )
                 return {}
 
             processed_positions = {}
@@ -114,77 +113,39 @@ class GetOpenPositions(GetData):
             logger.error(f"Failed to fetch open positions data: {e}")
             raise e
 
-    def _fetch_token_details_from_chain(self, token_address: str) -> dict[str, Any]:
-        """Fetch token details directly from the blockchain.
-
-        :param token_address: Token contract address
-        :returns: Dictionary with token symbol, address, and decimals
-        :rtype: dict
-        """
-        try:
-            token_details = fetch_erc20_details(self.config.web3, token_address)
-            return {
-                "symbol": token_details.symbol,
-                "address": token_address,
-                "decimals": token_details.decimals,
-            }
-        except Exception as e:
-            logging.warning(f"Failed to fetch token details for {token_address}: {e}")
-            # Return default assuming 18 decimals
-            return {
-                "symbol": "UNKNOWN",
-                "address": token_address,
-                "decimals": 18,
-            }
-
     def _get_tokens_address_dict(self) -> dict[str, Any]:
-        """Enhanced version of get_tokens_address_dict that fetches token data from blockchain.
+        """Get token metadata from GMX API.
 
-        This method fetches token details (including decimals) directly from the blockchain
-        contracts, ensuring accurate data for all tokens without maintaining hardcoded lists.
+        Fetches token data (symbol, decimals, synthetic flag) from GMX API,
+        avoiding expensive smart contract calls for each token.
 
-        :returns: Dictionary mapping token addresses to their information
+        Falls back to NETWORK_TOKENS_METADATA for tokens missing from API.
+
+        :returns: Dictionary mapping token addresses to their metadata
         :rtype: dict
         """
         try:
-            # Get tokens from GMX API using the original function
-            chain_tokens = get_tokens_address_dict(self.config.chain)
+            # Get tokens metadata from GMX API (includes decimals - no contract calls needed!)
+            chain_tokens = get_tokens_metadata_dict(self.config.chain)
+            logging.debug(
+                f"Fetched {len(chain_tokens)} tokens from GMX API for {self.config.chain}",
+            )
 
-            # If chain_tokens is symbol -> address mapping, we need to fetch details
-            if chain_tokens and isinstance(list(chain_tokens.values())[0], str):
-                # Fetch token details from blockchain for each address
-                enhanced_tokens = {}
-                for symbol, address in chain_tokens.items():
-                    token_details = self._fetch_token_details_from_chain(address)
-                    enhanced_tokens[address] = token_details
-                    logging.debug(f"Fetched token details for {symbol}: {token_details['decimals']} decimals")
-
-                return enhanced_tokens
-
-            # If it's already address -> metadata format, verify/enhance with blockchain data
-            enhanced_tokens = {}
-            for address, token_info in chain_tokens.items():
-                if isinstance(token_info, dict):
-                    # Already has metadata, but we can verify decimals from chain if needed
-                    enhanced_tokens[address] = token_info
-                else:
-                    # Fetch from chain
-                    enhanced_tokens[address] = self._fetch_token_details_from_chain(address)
-
-            # Add missing tokens from NETWORK_TOKENS if needed
+            # Add missing tokens from NETWORK_TOKENS_METADATA if needed
             chain = self.config.chain
-            if chain in NETWORK_TOKENS:
-                network_tokens = NETWORK_TOKENS[chain]
-                for symbol, address in network_tokens.items():
-                    if address not in enhanced_tokens:
-                        token_details = self._fetch_token_details_from_chain(address)
-                        enhanced_tokens[address] = token_details
-                        logging.info(f"Added token from NETWORK_TOKENS: {symbol} ({address}) with {token_details['decimals']} decimals")
+            if chain in NETWORK_TOKENS_METADATA:
+                network_tokens_meta = NETWORK_TOKENS_METADATA[chain]
+                for address, metadata in network_tokens_meta.items():
+                    if address not in chain_tokens:
+                        chain_tokens[address] = metadata
+                        logging.info(
+                            f"Added token from NETWORK_TOKENS_METADATA: {metadata['symbol']} ({address})",
+                        )
 
-            return enhanced_tokens
+            return chain_tokens
 
         except Exception as e:
-            logging.error(f"Failed to get enhanced tokens: {e}")
+            logging.error(f"Failed to get token metadata: {e}")
             raise e
 
     def _get_data_processing(self, raw_position: tuple) -> dict[str, Any]:
@@ -227,7 +188,10 @@ class GetOpenPositions(GetData):
 
             # Map testnet token addresses to mainnet for oracle lookups
             # Testnets don't have their own oracles, so we use mainnet prices
-            oracle_token_address = TESTNET_TO_MAINNET_ORACLE_TOKENS.get(index_token_address, index_token_address)
+            oracle_token_address = TESTNET_TO_MAINNET_ORACLE_TOKENS.get(
+                index_token_address,
+                index_token_address,
+            )
 
             # Try to find the price
             price_data = None
@@ -254,7 +218,9 @@ class GetOpenPositions(GetData):
                 logging.debug(f"Got oracle price for {index_token_address}: ${mark_price:.4f}")
             else:
                 # Price not found in oracle, use entry price
-                logging.debug(f"Oracle price not found for {index_token_address} (oracle address: {oracle_token_address}), using entry price")
+                logging.debug(
+                    f"Oracle price not found for {index_token_address} (oracle address: {oracle_token_address}), using entry price",
+                )
                 mark_price = entry_price
 
         except (KeyError, TypeError, ValueError) as e:
@@ -270,6 +236,21 @@ class GetOpenPositions(GetData):
         else:
             percent_profit = 0
 
+        # Position struct indices (GMX v2.2):
+        # raw_position[0] = Addresses (account, market, collateralToken)
+        # raw_position[1] = Numbers:
+        #   [0] sizeInUsd
+        #   [1] sizeInTokens
+        #   [2] collateralAmount
+        #   [3] pendingImpactAmount (NEW in v2.2)
+        #   [4] borrowingFactor
+        #   [5] fundingFeeAmountPerSize
+        #   [6] longTokenClaimableFundingAmountPerSize
+        #   [7] shortTokenClaimableFundingAmountPerSize
+        #   [8] increasedAtTime
+        #   [9] decreasedAtTime
+        # raw_position[2] = Flags (isLong)
+
         return {
             "account": raw_position[0][0],
             "market": raw_position[0][1],
@@ -281,11 +262,14 @@ class GetOpenPositions(GetData):
             "initial_collateral_amount": raw_position[1][2],
             "initial_collateral_amount_usd": raw_position[1][2] / 10**collateral_token_decimals,
             "leverage": leverage,
-            "borrowing_factor": raw_position[1][3],
-            "funding_fee_amount_per_size": raw_position[1][4],
-            "long_token_claimable_funding_amount_per_size": raw_position[1][5],
-            "short_token_claimable_funding_amount_per_size": raw_position[1][6],
-            "position_modified_at": "",
+            "pending_impact_amount": raw_position[1][3],
+            "borrowing_factor": raw_position[1][4],
+            "funding_fee_amount_per_size": raw_position[1][5],
+            "long_token_claimable_funding_amount_per_size": raw_position[1][6],
+            "short_token_claimable_funding_amount_per_size": raw_position[1][7],
+            "increased_at_time": raw_position[1][8],
+            "decreased_at_time": raw_position[1][9],
+            "position_modified_at": "",  # Deprecated, keeping for backward compatibility
             "is_long": raw_position[2][0],
             "percent_profit": percent_profit,
             "mark_price": mark_price,

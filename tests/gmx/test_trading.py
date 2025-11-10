@@ -199,10 +199,10 @@ def test_open_and_close_position(
     # === Step 1: Open position ===
     order_result = trading_manager_fork.open_position(
         market_symbol="ETH",
-        collateral_symbol="ETH",
-        start_token_symbol="ETH",
+        collateral_symbol="USDC",  # Use USDC collateral
+        start_token_symbol="USDC",  # Start with USDC
         is_long=True,
-        size_delta_usd=10,
+        size_delta_usd=100,  # Increase position size to $100
         leverage=2.5,
         slippage_percent=0.005,
         execution_buffer=2.2,
@@ -235,8 +235,8 @@ def test_open_and_close_position(
     # === Step 3: Close position ===
     close_order_result = trading_manager_fork.close_position(
         market_symbol="ETH",
-        collateral_symbol="ETH",
-        start_token_symbol="ETH",  # Receive ETH when closing
+        collateral_symbol="USDC",  # Match collateral from open
+        start_token_symbol="USDC",  # Receive USDC when closing
         is_long=True,
         size_delta_usd=position_size_usd,  # Close full position
         initial_collateral_delta=collateral_amount_usd,  # Withdraw all collateral

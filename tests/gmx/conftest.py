@@ -33,7 +33,32 @@ from eth_defi.utils import addr
 
 # Fork configuration constants
 FORK_BLOCK_ARBITRUM = 392496384
-MOCK_ETH_PRICE = 3450  # USD
+
+# Chainlink ETH/USD feed on Arbitrum
+CHAINLINK_ETH_USD_ARBITRUM = "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612"
+
+def get_chainlink_price_at_block(web3: Web3, aggregator_address: str, block_number: int) -> float:
+    """Fetch Chainlink price at a specific block."""
+    from eth_defi.abi import get_deployed_contract
+
+    aggregator = get_deployed_contract(
+        web3,
+        "ChainlinkAggregatorV2V3Interface.json",
+        aggregator_address,
+    )
+
+    # Get price at specific block
+    data = aggregator.functions.latestRoundData().call(block_identifier=block_number)
+    decimals = aggregator.functions.decimals().call(block_identifier=block_number)
+
+    # data = (roundId, answer, startedAt, updatedAt, answeredInRound)
+    price_raw = data[1]
+    price = price_raw / (10 ** decimals)
+
+    return price
+
+# These will be set dynamically by fetching from Chainlink at fork block
+MOCK_ETH_PRICE = None  # Will be fetched from Chainlink
 MOCK_USDC_PRICE = 1  # USD
 
 
@@ -358,12 +383,15 @@ def web3_arbitrum_fork(anvil_chain_fork: str) -> Web3:
 
 
 @pytest.fixture()
-def mock_oracle_fork(web3_arbitrum_fork: Web3) -> str:
+def mock_oracle_fork(web3_arbitrum_fork: Web3, chain_rpc_url: str) -> str:
     """Set up mock oracle for fork testing.
 
     Replaces the production Chainlink oracle with a mock oracle that allows
     setting custom prices for testing. This is required for fork testing since
     the real Chainlink oracle may not work on forked chains.
+
+    Fetches the real ETH price from Chainlink at the fork block to avoid
+    price validation failures.
 
     Returns:
         Address of the mock oracle provider
@@ -374,6 +402,22 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3) -> str:
     from eth_defi.trace import assert_transaction_success_with_explanation
 
     web3 = web3_arbitrum_fork
+
+    # Fetch real ETH price at fork block from Chainlink
+    # We need to connect to the RPC to query historical data
+    from web3 import Web3 as Web3Direct, HTTPProvider
+    direct_web3 = Web3Direct(HTTPProvider(chain_rpc_url))
+
+    try:
+        real_eth_price = get_chainlink_price_at_block(
+            direct_web3,
+            CHAINLINK_ETH_USD_ARBITRUM,
+            FORK_BLOCK_ARBITRUM
+        )
+        print(f"Fetched real ETH price at block {FORK_BLOCK_ARBITRUM}: ${real_eth_price:.2f}")
+    except Exception as e:
+        print(f"Warning: Could not fetch Chainlink price, using default: {e}")
+        real_eth_price = 3450  # Fallback
 
     # Production oracle provider address
     production_provider_address = to_checksum_address("0xE1d5a068c5b75E0c7Ea1A9Fe8EA056f9356C6fFD")
@@ -402,7 +446,7 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3) -> str:
 
     # WETH: 18 decimals -> price * 10^12
     weth_address = to_checksum_address("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1")
-    weth_price = int(MOCK_ETH_PRICE * (10**12))
+    weth_price = int(real_eth_price * (10**12))
 
     weth_tx = mock.functions.setPrice(weth_address, weth_price, weth_price).build_transaction(
         {
@@ -427,6 +471,8 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3) -> str:
     )
     usdc_tx_hash = web3.eth.send_transaction(usdc_tx)
     assert_transaction_success_with_explanation(web3, usdc_tx_hash, "Set USDC price on mock oracle")
+
+    print(f"Mock oracle configured with ETH=${real_eth_price:.2f}, USDC=${MOCK_USDC_PRICE}")
 
     return production_provider_address
 

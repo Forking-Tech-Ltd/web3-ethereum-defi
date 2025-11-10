@@ -457,6 +457,110 @@ def setup_mock_oracle(
     return production_provider_address
 
 
+def _decode_and_log_gmx_events(web3: Web3, receipt: dict):
+    """Decode and log GMX EventLog2 events from a transaction receipt.
+
+    GMX uses EventLog2 to emit all events. The structure is:
+    - topics[0]: EventLog2 signature
+    - topics[1]: keccak256(eventName)
+    - topics[2]: Additional indexed data (varies by event)
+    - data: ABI-encoded event data
+
+    Common event names:
+    - OrderExecuted: Order was successfully executed
+    - OrderCancelled: Order was cancelled (with reason)
+    - OrderFrozen: Order was frozen (with reason)
+    - PositionIncrease: Position was increased
+    - PositionDecrease: Position was decreased
+    """
+    logger.info("=== Decoding GMX Events ===")
+    logger.info(f"Total logs in receipt: {len(receipt.get('logs', []))}")
+
+    # Known event name hashes (keccak256 of event name strings)
+    EVENT_HASHES = {
+        web3.keccak(text="OrderCreated").hex(): "OrderCreated",
+        web3.keccak(text="OrderExecuted").hex(): "OrderExecuted",
+        web3.keccak(text="OrderCancelled").hex(): "OrderCancelled",
+        web3.keccak(text="OrderFrozen").hex(): "OrderFrozen",
+        web3.keccak(text="PositionIncrease").hex(): "PositionIncrease",
+        web3.keccak(text="PositionDecrease").hex(): "PositionDecrease",
+    }
+
+    # EventLog2 signature
+    EVENTLOG2_SIG = web3.keccak(text="EventLog2(address,string,string,bytes)").hex()
+    # EventLog1 signature (sometimes used for simpler events)
+    EVENTLOG1_SIG = web3.keccak(text="EventLog1(address,string,string,bytes)").hex()
+
+    logger.info(f"Looking for EventLog2 signature: {EVENTLOG2_SIG}")
+    logger.info(f"Looking for EventLog1 signature: {EVENTLOG1_SIG}")
+
+    found_events = []
+
+    for i, log in enumerate(receipt.get("logs", [])):
+        topics = log.get("topics", [])
+
+        # Print first 3 logs in detail for debugging
+        if i < 3:
+            logger.info(f"\nLog #{i}:")
+            logger.info(f"  Address: {log.get('address')}")
+            logger.info(f"  Topics count: {len(topics)}")
+            if len(topics) > 0:
+                topic0 = topics[0].hex() if isinstance(topics[0], bytes) else topics[0]
+                logger.info(f"  Topic[0]: {topic0}")
+            if len(topics) > 1:
+                topic1 = topics[1].hex() if isinstance(topics[1], bytes) else topics[1]
+                logger.info(f"  Topic[1]: {topic1}")
+            if len(topics) > 2:
+                topic2 = topics[2].hex() if isinstance(topics[2], bytes) else topics[2]
+                logger.info(f"  Topic[2]: {topic2}")
+
+        if len(topics) < 2:
+            continue
+
+        # Convert topics to hex strings
+        topic0 = topics[0].hex() if isinstance(topics[0], bytes) else topics[0]
+        topic1 = topics[1].hex() if isinstance(topics[1], bytes) else topics[1]
+
+        # Remove 0x prefix for comparison
+        topic0_clean = topic0[2:] if topic0.startswith("0x") else topic0
+        topic1_clean = topic1[2:] if topic1.startswith("0x") else topic1
+
+        # Check if this is EventLog2 or EventLog1
+        if topic0_clean == EVENTLOG2_SIG[2:] or topic0_clean == EVENTLOG1_SIG[2:]:
+            # topic1 is keccak256(eventName)
+            event_name = EVENT_HASHES.get(topic1, f"Unknown({topic1[:10]}...)")
+            found_events.append(event_name)
+
+            logger.info(f"\n  ✓ Found GMX Event: {event_name}")
+
+            # For OrderCancelled and OrderFrozen, try to decode the reason
+            if "OrderCancelled" in event_name or "OrderFrozen" in event_name:
+                try:
+                    # Load EventEmitter contract to decode data
+                    EventEmitter = get_contract(web3, "gmx/eventemitter.json")
+                    event_emitter = EventEmitter(address=log["address"])
+
+                    # Try to decode the EventLog2 event data
+                    # The data field contains the actual event parameters
+                    logger.info(f"  ⚠️  {event_name} event detected!")
+                    logger.info(f"      Log address: {log['address']}")
+                    logger.info(f"      Data length: {len(log.get('data', ''))} bytes")
+
+                    # Print raw data for debugging
+                    if log.get("data"):
+                        logger.info(f"      Raw data (first 200 chars): {log['data'][:200]}")
+                except Exception as e:
+                    logger.debug(f"Could not decode {event_name} data: {e}")
+
+    logger.info(f"\n{'='*50}")
+    if found_events:
+        logger.info(f"GMX Events emitted: {', '.join(found_events)}")
+    else:
+        logger.info("⚠️  NO GMX EVENTS FOUND! This is unusual - order may have been silently rejected")
+
+    logger.info("========================\n")
+
+
 def execute_order_as_keeper(web3: Web3, order_key: bytes):
     """Execute order by impersonating keeper.
 
@@ -520,6 +624,10 @@ def execute_order_as_keeper(web3: Web3, order_key: bytes):
         assert_transaction_success_with_explanation(web3, tx_hash, "Order execution by keeper")
 
         receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+
+        # Decode GMX events to see what actually happened
+        _decode_and_log_gmx_events(web3, receipt)
+
         logger.info("✓ Order executed successfully")
 
         return receipt, keeper

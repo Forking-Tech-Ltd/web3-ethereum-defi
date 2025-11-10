@@ -403,11 +403,28 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3, chain_rpc_url: str) -> str:
 
     web3 = web3_arbitrum_fork
 
-    # Use $3450 ETH price that makes the tests work
-    # Note: Real Chainlink price at this block is ~$3895, but using that breaks long positions
-    # This appears to be a limitation of the fork testing environment
-    real_eth_price = 3450
-    print(f"Using ETH price: ${real_eth_price:.2f} (hardcoded for fork compatibility)")
+    # Get the fork block timestamp to prevent time drift issues
+    fork_block = web3.eth.get_block(FORK_BLOCK_ARBITRUM)
+    fork_timestamp = fork_block['timestamp']
+    print(f"Fork block timestamp: {fork_timestamp}")
+
+    # Set next block timestamp to fork timestamp to prevent price staleness
+    # GMX validates prices based on block timestamps
+    try:
+        web3.provider.make_request("evm_setNextBlockTimestamp", [fork_timestamp])
+        print(f"Set next block timestamp to {fork_timestamp} (fork block)")
+    except Exception as e:
+        print(f"Warning: Could not set block timestamp: {e}")
+
+    # Fetch real ETH price from Chainlink at the fork block
+    # This ensures prices match what GMX expects for validation
+    try:
+        real_eth_price = get_chainlink_price_at_block(web3, CHAINLINK_ETH_USD_ARBITRUM, FORK_BLOCK_ARBITRUM)
+        print(f"Using ETH price: ${real_eth_price:.2f} (fetched from Chainlink at block {FORK_BLOCK_ARBITRUM})")
+    except Exception as e:
+        # Fallback to a reasonable price if Chainlink fetch fails
+        real_eth_price = 3450
+        print(f"Failed to fetch Chainlink price ({e}), using fallback: ${real_eth_price:.2f}")
 
     # Production oracle provider address
     production_provider_address = to_checksum_address("0xE1d5a068c5b75E0c7Ea1A9Fe8EA056f9356C6fFD")

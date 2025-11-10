@@ -83,6 +83,15 @@ class GetOpenPositions(GetData):
                 try:
                     processed_position = self._get_data_processing(raw_position)
 
+                    # Filter out closed positions (those with zero or near-zero size)
+                    # GMX contracts may return positions that have been closed but still exist in state
+                    if processed_position["position_size"] <= 0:
+                        logging.debug(
+                            f"Skipping closed position for {processed_position['market_symbol']} "
+                            f"(size: {processed_position['position_size']})"
+                        )
+                        continue
+
                     # Build a better key using market symbol and direction
                     if processed_position["is_long"]:
                         direction = "long"

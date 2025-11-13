@@ -1,7 +1,7 @@
 """
 CCXT-Compatible Wrapper for GMX Protocol
 
-This module provides a CCXT-compatible async interface for accessing GMX protocol
+This module provides a CCXT-compatible synchronous interface for accessing GMX protocol
 market data and trading functionality. It allows users familiar with CCXT to
 seamlessly integrate GMX into their existing trading systems with minimal code changes.
 
@@ -17,17 +17,17 @@ Example usage:
 
     # Initialize
     web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
-    config = GMXConfig(web3, chain="arbitrum")
+    config = GMXConfig(web3)
     exchange = GMXCCXTWrapper(config)
 
     # Fetch OHLCV data (CCXT-style)
-    ohlcv = await exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
+    ohlcv = exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
     # Returns: [[timestamp, open, high, low, close, volume], ...]
     ```
 
 Note:
     GMX protocol does not provide volume data in candlesticks, so volume
-    will always be None in the returned OHLCV arrays.
+    will always be 0 in the returned OHLCV arrays.
 """
 
 from typing import Optional, List, Dict, Any
@@ -41,7 +41,7 @@ class GMXCCXTWrapper:
     CCXT-compatible wrapper for GMX protocol market data and trading.
 
     This class provides a familiar CCXT-style interface for interacting with
-    GMX protocol, implementing async methods and data structures that match
+    GMX protocol, implementing synchronous methods and data structures that match
     CCXT conventions. This allows traders to use GMX with minimal changes to
     existing CCXT-based trading systems.
 
@@ -77,7 +77,7 @@ class GMXCCXTWrapper:
             "1d": "1d",
         }
 
-    async def load_markets(self, reload: bool = False) -> Dict[str, Any]:
+    def load_markets(self, reload: bool = False) -> Dict[str, Any]:
         """
         Load available markets from GMX protocol.
 
@@ -93,7 +93,7 @@ class GMXCCXTWrapper:
 
         Example:
             ```python
-            markets = await exchange.load_markets()
+            markets = exchange.load_markets()
             print(markets["ETH/USD"])
             # {'id': 'ETH', 'symbol': 'ETH/USD', 'base': 'ETH', 'quote': 'USD', ...}
             ```
@@ -158,7 +158,7 @@ class GMXCCXTWrapper:
         """
         if not self.markets_loaded:
             raise ValueError(
-                "Markets not loaded. Call await load_markets() first."
+                "Markets not loaded. Call load_markets() first."
             )
 
         if symbol not in self.markets:
@@ -166,7 +166,7 @@ class GMXCCXTWrapper:
 
         return self.markets[symbol]
 
-    async def fetch_ohlcv(
+    def fetch_ohlcv(
         self,
         symbol: str,
         timeframe: str = "1m",
@@ -191,21 +191,21 @@ class GMXCCXTWrapper:
 
         Returns:
             List of OHLCV candles, each as [timestamp_ms, open, high, low, close, volume]
-            Note: Volume is always None as GMX API doesn't provide volume data
+            Note: Volume is always 0 as GMX API doesn't provide volume data
 
         Example:
             ```python
             # Fetch last 100 hourly candles for ETH
-            candles = await exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
+            candles = exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
 
             # Fetch candles since specific time
             since = int(time.time() * 1000) - 86400000  # 24 hours ago
-            candles = await exchange.fetch_ohlcv("ETH/USD", "1h", since=since)
+            candles = exchange.fetch_ohlcv("ETH/USD", "1h", since=since)
 
             # Each candle: [timestamp, open, high, low, close, volume]
             for candle in candles:
                 timestamp, o, h, l, c, v = candle
-                print(f"{timestamp}: O:{o} H:{h} L:{l} C:{c}")
+                print(f"{timestamp}: O:{o} H:{h} L:{l} C:{c} V:{v}")
             ```
 
         Raises:
@@ -215,7 +215,7 @@ class GMXCCXTWrapper:
             params = {}
 
         # Ensure markets are loaded
-        await self.load_markets()
+        self.load_markets()
 
         # Get market info and extract GMX token symbol
         market_info = self.market(symbol)
@@ -320,7 +320,7 @@ class GMXCCXTWrapper:
             float(ohlcv[2]),  # High
             float(ohlcv[3]),  # Low
             float(ohlcv[4]),  # Close
-            None,  # Volume (GMX doesn't provide volume data)
+            0,  # Volume (GMX doesn't provide volume data)
         ]
 
     def parse_timeframe(self, timeframe: str) -> int:

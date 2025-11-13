@@ -1,11 +1,11 @@
 """
 Unit tests for GMX CCXT-compatible wrapper.
 
-Tests the CCXT-compatible interface for GMX protocol without requiring live network access.
+Tests the CCXT-compatible synchronous interface for GMX protocol without requiring live network access.
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 from eth_defi.gmx.ccxt.wrapper import GMXCCXTWrapper
 
 
@@ -80,7 +80,7 @@ def test_parse_ohlcv(mock_config):
         assert parsed[2] == 2250.0  # High
         assert parsed[3] == 2240.0  # Low
         assert parsed[4] == 2245.5  # Close
-        assert parsed[5] is None  # Volume (GMX doesn't provide)
+        assert parsed[5] == 0  # Volume (GMX doesn't provide, returns 0)
 
 
 def test_parse_ohlcvs(mock_config):
@@ -168,13 +168,12 @@ def test_parse_timeframe_invalid(mock_config):
             wrapper.parse_timeframe("invalid")
 
 
-@pytest.mark.asyncio
-async def test_load_markets(mock_config, mock_api):
+def test_load_markets(mock_config, mock_api):
     """Test loading markets from GMX API."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
         wrapper = GMXCCXTWrapper(mock_config)
 
-        markets = await wrapper.load_markets()
+        markets = wrapper.load_markets()
 
         assert wrapper.markets_loaded is True
         assert len(markets) == 3  # ETH, BTC, ARB
@@ -191,52 +190,49 @@ async def test_load_markets(mock_config, mock_api):
         assert eth_market["active"] is True
 
 
-@pytest.mark.asyncio
-async def test_load_markets_caching(mock_config, mock_api):
+def test_load_markets_caching(mock_config, mock_api):
     """Test that markets are cached after first load."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
         wrapper = GMXCCXTWrapper(mock_config)
 
         # First load
-        markets1 = await wrapper.load_markets()
+        markets1 = wrapper.load_markets()
         call_count_1 = mock_api.get_tokens.call_count
 
         # Second load (should use cache)
-        markets2 = await wrapper.load_markets()
+        markets2 = wrapper.load_markets()
         call_count_2 = mock_api.get_tokens.call_count
 
         assert markets1 == markets2
         assert call_count_1 == call_count_2  # API not called again
 
 
-@pytest.mark.asyncio
-async def test_load_markets_reload(mock_config, mock_api):
+def test_load_markets_reload(mock_config, mock_api):
     """Test forcing market reload."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
         wrapper = GMXCCXTWrapper(mock_config)
 
         # First load
-        await wrapper.load_markets()
+        wrapper.load_markets()
         call_count_1 = mock_api.get_tokens.call_count
 
         # Force reload
-        await wrapper.load_markets(reload=True)
+        wrapper.load_markets(reload=True)
         call_count_2 = mock_api.get_tokens.call_count
 
         assert call_count_2 > call_count_1  # API called again
 
 
-@pytest.mark.asyncio
-async def test_fetch_ohlcv(mock_config, mock_api):
+def test_fetch_ohlcv(mock_config, mock_api):
     """Test fetching OHLCV data."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
         wrapper = GMXCCXTWrapper(mock_config)
 
         # Load markets first
-        await wrapper.load_markets()
+        wrapper.load_markets()
 
         # Fetch OHLCV
-        ohlcv = await wrapper.fetch_ohlcv("ETH/USD", "1h", limit=3)
+        ohlcv = wrapper.fetch_ohlcv("ETH/USD", "1h", limit=3)
 
         # Verify API was called correctly
         mock_api.get_candlesticks.assert_called_once_with("ETH", "1h")
@@ -244,29 +240,27 @@ async def test_fetch_ohlcv(mock_config, mock_api):
         # Verify response format
         assert len(ohlcv) == 3
         assert len(ohlcv[0]) == 6  # CCXT format has 6 fields
-        assert ohlcv[0][5] is None  # Volume is None
+        assert ohlcv[0][5] == 0  # Volume is 0
 
 
-@pytest.mark.asyncio
-async def test_fetch_ohlcv_invalid_symbol(mock_config, mock_api):
+def test_fetch_ohlcv_invalid_symbol(mock_config, mock_api):
     """Test error handling for invalid symbol."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
         wrapper = GMXCCXTWrapper(mock_config)
-        await wrapper.load_markets()
+        wrapper.load_markets()
 
         with pytest.raises(ValueError, match="Market .* not found"):
-            await wrapper.fetch_ohlcv("INVALID/USD", "1h")
+            wrapper.fetch_ohlcv("INVALID/USD", "1h")
 
 
-@pytest.mark.asyncio
-async def test_fetch_ohlcv_invalid_timeframe(mock_config, mock_api):
+def test_fetch_ohlcv_invalid_timeframe(mock_config, mock_api):
     """Test error handling for invalid timeframe."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
         wrapper = GMXCCXTWrapper(mock_config)
-        await wrapper.load_markets()
+        wrapper.load_markets()
 
         with pytest.raises(ValueError, match="Invalid timeframe"):
-            await wrapper.fetch_ohlcv("ETH/USD", "invalid")
+            wrapper.fetch_ohlcv("ETH/USD", "invalid")
 
 
 def test_safe_integer(mock_config):

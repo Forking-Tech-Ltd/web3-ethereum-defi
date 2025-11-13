@@ -10,38 +10,34 @@ The CCXT wrapper implements the familiar methods and data structures that CCXT u
 
 - **CCXT-Compatible API**: Methods like `fetch_ohlcv`, `load_markets` work exactly as expected
 - **Standard Data Format**: Returns OHLCV data in standard CCXT format `[timestamp_ms, open, high, low, close, volume]`
-- **Async/Await Support**: Fully async implementation for non-blocking operations
+- **Synchronous Interface**: Simple, direct API calls without async/await complexity
 - **Multiple Timeframes**: Supports 1m, 5m, 15m, 1h, 4h, and 1d intervals
 - **Unified Symbols**: Uses standard format like "ETH/USD", "BTC/USD"
 
 ## Quick Start
 
 ```python
-import asyncio
 from web3 import Web3
 from eth_defi.gmx.config import GMXConfig
 from eth_defi.gmx.ccxt import GMXCCXTWrapper
 
-async def main():
-    # Connect to Arbitrum
-    web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
-    config = GMXConfig(web3)
+# Connect to Arbitrum
+web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
+config = GMXConfig(web3)
 
-    # Create CCXT-compatible wrapper
-    exchange = GMXCCXTWrapper(config)
+# Create CCXT-compatible wrapper
+exchange = GMXCCXTWrapper(config)
 
-    # Load markets (just like CCXT)
-    await exchange.load_markets()
+# Load markets (just like CCXT)
+exchange.load_markets()
 
-    # Fetch OHLCV data
-    ohlcv = await exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
+# Fetch OHLCV data
+ohlcv = exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
 
-    # Process candles
-    for candle in ohlcv:
-        timestamp, open, high, low, close, volume = candle
-        print(f"Timestamp: {timestamp}, Close: ${close}")
-
-asyncio.run(main())
+# Process candles
+for candle in ohlcv:
+    timestamp, open, high, low, close, volume = candle
+    print(f"Timestamp: {timestamp}, Close: ${close}, Volume: {volume}")
 ```
 
 ## API Reference
@@ -55,7 +51,7 @@ Initialize the CCXT wrapper with GMX configuration.
 **Parameters:**
 - `config`: GMXConfig instance with network settings
 
-#### `async load_markets(reload: bool = False) -> Dict[str, Any]`
+#### `load_markets(reload: bool = False) -> Dict[str, Any]`
 
 Load available markets from GMX protocol.
 
@@ -66,12 +62,12 @@ Load available markets from GMX protocol.
 
 **Example:**
 ```python
-markets = await exchange.load_markets()
+markets = exchange.load_markets()
 print(f"Available markets: {list(markets.keys())}")
 # Output: ['ETH/USD', 'BTC/USD', 'ARB/USD', ...]
 ```
 
-#### `async fetch_ohlcv(symbol: str, timeframe: str = '1m', since: Optional[int] = None, limit: Optional[int] = None, params: Optional[Dict] = None) -> List[List]`
+#### `fetch_ohlcv(symbol: str, timeframe: str = '1m', since: Optional[int] = None, limit: Optional[int] = None, params: Optional[Dict] = None) -> List[List]`
 
 Fetch historical OHLCV (candlestick) data.
 
@@ -91,15 +87,17 @@ Fetch historical OHLCV (candlestick) data.
 ]
 ```
 
+**Note:** Volume is always `0` as GMX API doesn't provide volume data.
+
 **Example:**
 ```python
 # Get last 50 hourly candles
-candles = await exchange.fetch_ohlcv("BTC/USD", "1h", limit=50)
+candles = exchange.fetch_ohlcv("BTC/USD", "1h", limit=50)
 
 # Get candles from specific time
 import time
 since = int((time.time() - 86400) * 1000)  # 24 hours ago
-candles = await exchange.fetch_ohlcv("ETH/USD", "1h", since=since)
+candles = exchange.fetch_ohlcv("ETH/USD", "1h", since=since)
 ```
 
 ### Helper Methods
@@ -137,11 +135,11 @@ now = exchange.milliseconds()
 
 ### Volume Data
 
-⚠️ **GMX API does not provide volume data in candlesticks.** The volume field in returned OHLCV arrays will always be `None`.
+⚠️ **GMX API does not provide volume data in candlesticks.** The volume field in returned OHLCV arrays will always be `0`.
 
 ```python
 timestamp, open, high, low, close, volume = candle
-# volume will always be None
+# volume will always be 0
 ```
 
 ### Market Symbols
@@ -171,14 +169,15 @@ python scripts/gmx/gmx_ccxt_example.py
 ### Similar to CCXT
 
 ✅ Method names (`fetch_ohlcv`, `load_markets`)
-✅ Async/await pattern
 ✅ Data format `[timestamp_ms, O, H, L, C, V]`
 ✅ Unified symbols ("ETH/USD")
 ✅ Helper methods (`parse_timeframe`, `milliseconds`)
+✅ Market structure and information
 
 ### Different from CCXT
 
-❌ No volume data (always `None`)
+❌ Synchronous (not async) - simpler, no await needed
+❌ No volume data (always `0`)
 ❌ Limited historical data (API dependent)
 ❌ Fewer timeframe options (6 vs 14+ in some exchanges)
 ❌ No order placement methods (read-only wrapper)
@@ -195,33 +194,36 @@ pytest tests/gmx/test_ccxt_wrapper.py -v
 Migrating from a CCXT-based trading system to GMX is straightforward:
 
 ```python
-# Before (CCXT with Hyperliquid)
-from ccxt.async_support import hyperliquid
-exchange = hyperliquid()
-await exchange.load_markets()
-ohlcv = await exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
+# Before (CCXT with synchronous version)
+import ccxt
+exchange = ccxt.binance()
+exchange.load_markets()
+ohlcv = exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
 
 # After (GMX with CCXT wrapper)
 from eth_defi.gmx.config import GMXConfig
 from eth_defi.gmx.ccxt import GMXCCXTWrapper
 config = GMXConfig(web3)  # Requires Web3 connection
 exchange = GMXCCXTWrapper(config)
-await exchange.load_markets()
-ohlcv = await exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
+exchange.load_markets()
+ohlcv = exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
 ```
 
-The main difference is initialization - GMX requires a Web3 connection to the blockchain, while CCXT exchanges use API keys.
+**Key Differences:**
+- GMX requires a Web3 connection to the blockchain, while CCXT exchanges use API keys
+- GMX wrapper is synchronous (no async/await needed)
+- Volume data is always `0` in GMX (API limitation)
 
 ## Troubleshooting
 
 ### "Markets not loaded" Error
 
-Make sure to call `await exchange.load_markets()` before fetching OHLCV data:
+Make sure to call `exchange.load_markets()` before fetching OHLCV data:
 
 ```python
 exchange = GMXCCXTWrapper(config)
-await exchange.load_markets()  # Required!
-ohlcv = await exchange.fetch_ohlcv("ETH/USD", "1h")
+exchange.load_markets()  # Required!
+ohlcv = exchange.fetch_ohlcv("ETH/USD", "1h")
 ```
 
 ### Invalid Symbol Error
@@ -230,10 +232,10 @@ Use unified symbols like "ETH/USD", not raw token symbols like "ETH":
 
 ```python
 # ❌ Wrong
-ohlcv = await exchange.fetch_ohlcv("ETH", "1h")
+ohlcv = exchange.fetch_ohlcv("ETH", "1h")
 
 # ✅ Correct
-ohlcv = await exchange.fetch_ohlcv("ETH/USD", "1h")
+ohlcv = exchange.fetch_ohlcv("ETH/USD", "1h")
 ```
 
 ### Invalid Timeframe Error
@@ -242,10 +244,10 @@ Only use supported timeframes: 1m, 5m, 15m, 1h, 4h, 1d
 
 ```python
 # ❌ Wrong
-ohlcv = await exchange.fetch_ohlcv("ETH/USD", "30m")  # Not supported
+ohlcv = exchange.fetch_ohlcv("ETH/USD", "30m")  # Not supported
 
 # ✅ Correct
-ohlcv = await exchange.fetch_ohlcv("ETH/USD", "15m")  # Supported
+ohlcv = exchange.fetch_ohlcv("ETH/USD", "15m")  # Supported
 ```
 
 ## License

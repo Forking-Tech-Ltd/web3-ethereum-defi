@@ -3,7 +3,8 @@
 GMX CCXT Interface Example
 
 This script demonstrates how to use the CCXT-compatible interface for GMX protocol.
-It shows how to fetch OHLCV (candlestick) data using familiar CCXT methods.
+It shows how to fetch OHLCV (candlestick) data and analyze it using pandas, numpy,
+and rich for beautiful console output.
 
 Usage:
     python scripts/gmx/gmx_ccxt_example.py
@@ -13,9 +14,10 @@ Requirements:
     - No wallet/private key required (read-only operations)
 """
 
-import asyncio
 import sys
 from pathlib import Path
+import time
+from datetime import datetime
 
 # Add the project root to the path
 project_root = Path(__file__).parent.parent.parent
@@ -25,14 +27,50 @@ from web3 import Web3
 from eth_defi.gmx.config import GMXConfig
 from eth_defi.gmx.ccxt import GMXCCXTWrapper
 
+import pandas as pd
+import numpy as np
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.progress import track
+from rich import box
 
-async def fetch_ohlcv_example():
+console = Console()
+
+
+def ohlcv_to_dataframe(ohlcv, symbol):
+    """Convert OHLCV list to pandas DataFrame."""
+    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    df["symbol"] = symbol
+    return df
+
+
+def calculate_technical_indicators(df):
+    """Calculate basic technical indicators."""
+    # Simple Moving Averages
+    df["sma_10"] = df["close"].rolling(window=10).mean()
+    df["sma_20"] = df["close"].rolling(window=20).mean()
+
+    # Price changes
+    df["change"] = df["close"].diff()
+    df["change_pct"] = df["close"].pct_change() * 100
+
+    # High-Low range
+    df["hl_range"] = df["high"] - df["low"]
+    df["hl_range_pct"] = (df["hl_range"] / df["close"]) * 100
+
+    return df
+
+
+def fetch_ohlcv_example():
     """
-    Example 1: Basic OHLCV fetching - Similar to Hyperliquid/CCXT usage
+    Example 1: Basic OHLCV fetching with DataFrame analysis
     """
-    print("=" * 80)
-    print("Example 1: Fetch OHLCV Data (CCXT-style)")
-    print("=" * 80)
+    console.print(Panel.fit(
+        "[bold cyan]Example 1: Fetch OHLCV Data (CCXT-style)[/bold cyan]",
+        border_style="cyan"
+    ))
 
     # Setup GMX connection (Arbitrum mainnet)
     web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
@@ -41,199 +79,344 @@ async def fetch_ohlcv_example():
     # Create CCXT-compatible wrapper
     exchange = GMXCCXTWrapper(config)
 
-    # Load available markets (like CCXT)
-    print("\nLoading markets...")
-    markets = await exchange.load_markets()
-    print(f"Loaded {len(markets)} markets")
-    print(f"Available markets: {list(markets.keys())[:5]}...")  # Show first 5
+    # Load available markets
+    console.print("\n[yellow]Loading markets...[/yellow]")
+    markets = exchange.load_markets()
+    console.print(f"[green]✓[/green] Loaded {len(markets)} markets")
 
     # Fetch OHLCV data for ETH/USD
-    print("\n" + "-" * 80)
-    print("Fetching ETH/USD hourly candles (last 10)...")
-    print("-" * 80)
+    console.print("\n" + "─" * 80)
+    console.print("[bold]Fetching ETH/USD hourly candles (last 50)...[/bold]")
+    console.print("─" * 80 + "\n")
 
     symbol = "ETH/USD"
     timeframe = "1h"
-    limit = 10
+    limit = 50
 
-    ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
 
-    print(f"\nReceived {len(ohlcv)} candles for {symbol} ({timeframe})")
-    print("\nFormat: [timestamp_ms, open, high, low, close, volume]")
-    print("-" * 80)
+    # Convert to DataFrame
+    df = ohlcv_to_dataframe(ohlcv, symbol)
+    df = calculate_technical_indicators(df)
 
-    # Display the candles
-    for i, candle in enumerate(ohlcv[-5:], 1):  # Show last 5
-        timestamp_ms, open_price, high, low, close, volume = candle
-        from datetime import datetime
+    console.print(f"[green]✓[/green] Received {len(ohlcv)} candles for {symbol} ({timeframe})\n")
 
-        dt = datetime.fromtimestamp(timestamp_ms / 1000)
-        print(f"{i}. {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"   Open: ${open_price:,.2f} | High: ${high:,.2f} | Low: ${low:,.2f} | Close: ${close:,.2f}")
-        print(f"   Volume: {volume} (GMX doesn't provide volume data)")
+    # Display statistics table
+    stats_table = Table(title=f"📊 {symbol} Statistics", box=box.ROUNDED)
+    stats_table.add_column("Metric", style="cyan", justify="left")
+    stats_table.add_column("Value", style="green", justify="right")
 
-    return ohlcv
+    latest = df.iloc[-1]
+    stats_table.add_row("Latest Price", f"${latest['close']:,.2f}")
+    stats_table.add_row("24h High", f"${df['high'].tail(24).max():,.2f}")
+    stats_table.add_row("24h Low", f"${df['low'].tail(24).min():,.2f}")
+    stats_table.add_row("24h Change", f"{df['change_pct'].tail(24).sum():+.2f}%")
+    stats_table.add_row("Avg HL Range", f"${df['hl_range'].mean():.2f}")
+    stats_table.add_row("SMA 10", f"${latest['sma_10']:.2f}")
+    stats_table.add_row("SMA 20", f"${latest['sma_20']:.2f}")
+
+    console.print(stats_table)
+
+    # Display recent candles
+    console.print("\n")
+    candles_table = Table(title="🕯️  Recent Candles (Last 5)", box=box.SIMPLE)
+    candles_table.add_column("Time", style="cyan")
+    candles_table.add_column("Open", justify="right")
+    candles_table.add_column("High", justify="right", style="green")
+    candles_table.add_column("Low", justify="right", style="red")
+    candles_table.add_column("Close", justify="right", style="bold")
+    candles_table.add_column("Change %", justify="right")
+
+    for _, row in df.tail(5).iterrows():
+        change_style = "green" if row["change_pct"] >= 0 else "red"
+        candles_table.add_row(
+            row["timestamp"].strftime("%m-%d %H:%M"),
+            f"${row['open']:,.2f}",
+            f"${row['high']:,.2f}",
+            f"${row['low']:,.2f}",
+            f"${row['close']:,.2f}",
+            f"[{change_style}]{row['change_pct']:+.2f}%[/{change_style}]",
+        )
+
+    console.print(candles_table)
+
+    return df
 
 
-async def fetch_multiple_timeframes():
+def fetch_multiple_timeframes():
     """
-    Example 2: Fetch data for multiple timeframes
+    Example 2: Fetch and compare multiple timeframes
     """
-    print("\n\n" + "=" * 80)
-    print("Example 2: Multiple Timeframes")
-    print("=" * 80)
+    console.print("\n\n")
+    console.print(Panel.fit(
+        "[bold cyan]Example 2: Multiple Timeframes Analysis[/bold cyan]",
+        border_style="cyan"
+    ))
 
     web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
     config = GMXConfig(web3)
     exchange = GMXCCXTWrapper(config)
 
-    await exchange.load_markets()
+    exchange.load_markets()
 
     symbol = "BTC/USD"
     timeframes = ["1m", "15m", "1h", "1d"]
 
-    print(f"\nFetching {symbol} data for multiple timeframes...")
+    console.print(f"\n[yellow]Fetching {symbol} data for multiple timeframes...[/yellow]\n")
 
-    for tf in timeframes:
-        ohlcv = await exchange.fetch_ohlcv(symbol, tf, limit=5)
-        latest = ohlcv[-1] if ohlcv else None
+    # Create comparison table
+    tf_table = Table(title=f"📈 {symbol} Multi-Timeframe Analysis", box=box.ROUNDED)
+    tf_table.add_column("Timeframe", style="cyan", justify="center")
+    tf_table.add_column("Latest Price", justify="right")
+    tf_table.add_column("Change %", justify="right")
+    tf_table.add_column("High", justify="right", style="green")
+    tf_table.add_column("Low", justify="right", style="red")
+    tf_table.add_column("Volatility", justify="right")
 
-        if latest:
-            timestamp_ms, open_price, high, low, close, volume = latest
-            from datetime import datetime
+    for tf in track(timeframes, description="Loading..."):
+        ohlcv = exchange.fetch_ohlcv(symbol, tf, limit=10)
+        df = ohlcv_to_dataframe(ohlcv, symbol)
+        df = calculate_technical_indicators(df)
 
-            dt = datetime.fromtimestamp(timestamp_ms / 1000)
-            print(f"\n{tf:>4} - Latest: {dt.strftime('%Y-%m-%d %H:%M')}")
-            print(f"      Close: ${close:,.2f} | High: ${high:,.2f} | Low: ${low:,.2f}")
+        latest = df.iloc[-1]
+        first = df.iloc[0]
+        change_pct = ((latest["close"] - first["close"]) / first["close"]) * 100
+        volatility = df["hl_range_pct"].mean()
+
+        change_style = "green" if change_pct >= 0 else "red"
+        tf_table.add_row(
+            tf,
+            f"${latest['close']:,.2f}",
+            f"[{change_style}]{change_pct:+.2f}%[/{change_style}]",
+            f"${df['high'].max():,.2f}",
+            f"${df['low'].min():,.2f}",
+            f"{volatility:.2f}%",
+        )
+
+    console.print(tf_table)
 
 
-async def fetch_with_since_parameter():
+def fetch_with_since_parameter():
     """
-    Example 3: Fetch historical data using 'since' parameter
+    Example 3: Fetch historical data and calculate returns
     """
-    print("\n\n" + "=" * 80)
-    print("Example 3: Fetch Data Since Specific Time")
-    print("=" * 80)
+    console.print("\n\n")
+    console.print(Panel.fit(
+        "[bold cyan]Example 3: Historical Analysis with 'since' Parameter[/bold cyan]",
+        border_style="cyan"
+    ))
 
     web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
     config = GMXConfig(web3)
     exchange = GMXCCXTWrapper(config)
 
-    await exchange.load_markets()
+    exchange.load_markets()
 
     symbol = "ETH/USD"
     timeframe = "1h"
 
     # Calculate 'since' as 24 hours ago
-    import time
-
     twenty_four_hours_ago = int((time.time() - 86400) * 1000)  # milliseconds
 
-    print(f"\nFetching {symbol} {timeframe} candles from last 24 hours...")
+    console.print(f"\n[yellow]Fetching {symbol} {timeframe} candles from last 24 hours...[/yellow]\n")
 
-    ohlcv = await exchange.fetch_ohlcv(
+    ohlcv = exchange.fetch_ohlcv(
         symbol,
         timeframe,
         since=twenty_four_hours_ago,
         limit=24,
     )
 
-    print(f"Received {len(ohlcv)} candles")
+    df = ohlcv_to_dataframe(ohlcv, symbol)
+    df = calculate_technical_indicators(df)
 
-    if ohlcv:
-        first = ohlcv[0]
-        last = ohlcv[-1]
+    # Calculate performance metrics
+    first_price = df.iloc[0]["close"]
+    last_price = df.iloc[-1]["close"]
+    price_change = last_price - first_price
+    price_change_pct = (price_change / first_price) * 100
 
-        from datetime import datetime
+    max_price = df["high"].max()
+    min_price = df["low"].min()
+    avg_price = df["close"].mean()
+    std_dev = df["close"].std()
 
-        first_time = datetime.fromtimestamp(first[0] / 1000)
-        last_time = datetime.fromtimestamp(last[0] / 1000)
+    # Display performance panel
+    perf_table = Table(title=f"📊 24-Hour Performance: {symbol}", box=box.ROUNDED)
+    perf_table.add_column("Metric", style="cyan", justify="left")
+    perf_table.add_column("Value", style="bold", justify="right")
 
-        print(f"\nFirst candle: {first_time.strftime('%Y-%m-%d %H:%M')} - Close: ${first[4]:,.2f}")
-        print(f"Last candle:  {last_time.strftime('%Y-%m-%d %H:%M')} - Close: ${last[4]:,.2f}")
+    perf_table.add_row("Start Price", f"${first_price:,.2f}")
+    perf_table.add_row("End Price", f"${last_price:,.2f}")
 
-        # Calculate price change
-        price_change = ((last[4] - first[4]) / first[4]) * 100
-        print(f"\n24h Price Change: {price_change:+.2f}%")
+    change_style = "green" if price_change >= 0 else "red"
+    perf_table.add_row(
+        "24h Change",
+        f"[{change_style}]{price_change:+,.2f} ({price_change_pct:+.2f}%)[/{change_style}]"
+    )
+
+    perf_table.add_row("─" * 20, "─" * 15)
+    perf_table.add_row("24h High", f"${max_price:,.2f}")
+    perf_table.add_row("24h Low", f"${min_price:,.2f}")
+    perf_table.add_row("Average", f"${avg_price:,.2f}")
+    perf_table.add_row("Std Dev", f"${std_dev:.2f}")
+    perf_table.add_row("Volatility", f"{(std_dev / avg_price * 100):.2f}%")
+
+    console.print(perf_table)
 
 
-async def compare_multiple_tokens():
+def compare_multiple_tokens():
     """
-    Example 4: Compare multiple tokens (like okex example)
+    Example 4: Compare multiple tokens with correlation analysis
     """
-    print("\n\n" + "=" * 80)
-    print("Example 4: Compare Multiple Tokens")
-    print("=" * 80)
+    console.print("\n\n")
+    console.print(Panel.fit(
+        "[bold cyan]Example 4: Multi-Token Comparison & Correlation[/bold cyan]",
+        border_style="cyan"
+    ))
 
     web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
     config = GMXConfig(web3)
     exchange = GMXCCXTWrapper(config)
 
-    await exchange.load_markets()
+    exchange.load_markets()
 
     symbols = ["ETH/USD", "BTC/USD", "ARB/USD"]
-    timeframe = "1d"
+    timeframe = "1h"
+    limit = 24
 
-    print(f"\nFetching daily data for multiple tokens...")
-    print("-" * 80)
+    console.print(f"\n[yellow]Fetching hourly data for {len(symbols)} tokens...[/yellow]\n")
 
-    for symbol in symbols:
+    # Collect data for all symbols
+    dfs = {}
+    for symbol in track(symbols, description="Loading..."):
         try:
-            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=2)
-
-            if len(ohlcv) >= 2:
-                yesterday = ohlcv[-2]
-                today = ohlcv[-1]
-
-                yesterday_close = yesterday[4]
-                today_close = today[4]
-                change = ((today_close - yesterday_close) / yesterday_close) * 100
-
-                print(f"\n{symbol:>10}")
-                print(f"  Yesterday: ${yesterday_close:>10,.2f}")
-                print(f"  Today:     ${today_close:>10,.2f}")
-                print(f"  Change:    {change:>10.2f}%")
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            df = ohlcv_to_dataframe(ohlcv, symbol)
+            df = calculate_technical_indicators(df)
+            dfs[symbol] = df
         except Exception as e:
-            print(f"\n{symbol:>10} - Error: {e}")
+            console.print(f"[red]Error fetching {symbol}: {e}[/red]")
+
+    # Create comparison table
+    comp_table = Table(title="💰 Token Comparison (24h)", box=box.ROUNDED)
+    comp_table.add_column("Token", style="cyan", justify="left")
+    comp_table.add_column("Current Price", justify="right")
+    comp_table.add_column("24h Change", justify="right")
+    comp_table.add_column("24h Return %", justify="right")
+    comp_table.add_column("Volatility", justify="right")
+    comp_table.add_column("Trend", justify="center")
+
+    for symbol, df in dfs.items():
+        if len(df) >= 2:
+            first_price = df.iloc[0]["close"]
+            latest_price = df.iloc[-1]["close"]
+            change = latest_price - first_price
+            change_pct = (change / first_price) * 100
+            volatility = df["hl_range_pct"].mean()
+
+            # Determine trend based on SMA
+            sma_10 = df["sma_10"].iloc[-1]
+            sma_20 = df["sma_20"].iloc[-1]
+            if pd.notna(sma_10) and pd.notna(sma_20):
+                if sma_10 > sma_20:
+                    trend = "📈 Bullish"
+                    trend_style = "green"
+                else:
+                    trend = "📉 Bearish"
+                    trend_style = "red"
+            else:
+                trend = "➡️  Neutral"
+                trend_style = "yellow"
+
+            change_style = "green" if change >= 0 else "red"
+            comp_table.add_row(
+                symbol.replace("/USD", ""),
+                f"${latest_price:,.2f}",
+                f"[{change_style}]${change:+,.2f}[/{change_style}]",
+                f"[{change_style}]{change_pct:+.2f}%[/{change_style}]",
+                f"{volatility:.2f}%",
+                f"[{trend_style}]{trend}[/{trend_style}]",
+            )
+
+    console.print(comp_table)
+
+    # Calculate correlation matrix if we have enough data
+    if len(dfs) >= 2:
+        console.print("\n")
+        corr_table = Table(title="🔗 Price Correlation Matrix", box=box.ROUNDED)
+        corr_table.add_column("", style="cyan")
+
+        # Prepare data for correlation
+        price_data = {}
+        for symbol, df in dfs.items():
+            token = symbol.replace("/USD", "")
+            price_data[token] = df["close"].values
+            corr_table.add_column(token, justify="center")
+
+        # Calculate correlations
+        tokens = list(price_data.keys())
+        for token1 in tokens:
+            row = [token1]
+            for token2 in tokens:
+                if token1 == token2:
+                    row.append("[bold]1.00[/bold]")
+                else:
+                    # Calculate correlation
+                    corr = np.corrcoef(price_data[token1], price_data[token2])[0, 1]
+                    if corr > 0.7:
+                        style = "green"
+                    elif corr < 0.3:
+                        style = "red"
+                    else:
+                        style = "yellow"
+                    row.append(f"[{style}]{corr:.2f}[/{style}]")
+            corr_table.add_row(*row)
+
+        console.print(corr_table)
 
 
-async def main():
+def main():
     """
     Run all examples
     """
-    print("\n" + "=" * 80)
-    print("GMX CCXT-Compatible Interface Examples")
-    print("=" * 80)
-    print("\nThese examples demonstrate how to use GMX with CCXT-style methods,")
-    print("making it easy to migrate from centralized exchanges to GMX protocol.")
-    print("=" * 80)
+    console.print("\n")
+    console.print(Panel.fit(
+        "[bold magenta]GMX CCXT-Compatible Interface Examples[/bold magenta]\n"
+        "[dim]Demonstrating CCXT-style methods with pandas, numpy, and rich output[/dim]",
+        border_style="magenta",
+        padding=(1, 2)
+    ))
 
     try:
         # Run examples
-        await fetch_ohlcv_example()
-        await fetch_multiple_timeframes()
-        await fetch_with_since_parameter()
-        await compare_multiple_tokens()
+        fetch_ohlcv_example()
+        fetch_multiple_timeframes()
+        fetch_with_since_parameter()
+        compare_multiple_tokens()
 
-        print("\n\n" + "=" * 80)
-        print("All examples completed successfully!")
-        print("=" * 80)
-        print("\nKey Takeaways:")
-        print("1. Use load_markets() before fetching data (just like CCXT)")
-        print("2. fetch_ohlcv() returns [[timestamp_ms, O, H, L, C, V], ...]")
-        print("3. Volume is None (GMX API doesn't provide volume)")
-        print("4. Supports timeframes: 1m, 5m, 15m, 1h, 4h, 1d")
-        print("5. Use 'since' parameter for historical data (in milliseconds)")
-        print("6. Use 'limit' parameter to control number of candles")
-        print("=" * 80)
+        # Summary
+        console.print("\n\n")
+        console.print(Panel.fit(
+            "[bold green]✓ All examples completed successfully![/bold green]\n\n"
+            "[cyan]Key Takeaways:[/cyan]\n"
+            "• Use [bold]load_markets()[/bold] before fetching data\n"
+            "• [bold]fetch_ohlcv()[/bold] returns [[timestamp_ms, O, H, L, C, V], ...]\n"
+            "• Volume is [yellow]0[/yellow] (GMX API doesn't provide volume)\n"
+            "• Supported timeframes: [dim]1m, 5m, 15m, 1h, 4h, 1d[/dim]\n"
+            "• Use [bold]since[/bold] parameter for historical data (milliseconds)\n"
+            "• Use [bold]limit[/bold] parameter to control number of candles\n"
+            "• Convert to pandas DataFrame for easy analysis",
+            border_style="green",
+            padding=(1, 2)
+        ))
 
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        console.print(f"\n[bold red]❌ Error:[/bold red] {e}")
         import traceback
-
-        traceback.print_exc()
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

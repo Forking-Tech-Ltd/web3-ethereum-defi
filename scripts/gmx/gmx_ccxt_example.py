@@ -6,10 +6,12 @@ This script demonstrates how to use the CCXT-compatible interface for GMX protoc
 It shows how to fetch OHLCV (candlestick) data and analyze it using pandas, numpy,
 and rich for beautiful console output.
 
-Usage:
+Usage::
+
     python scripts/gmx/gmx_ccxt_example.py
 
-Requirements:
+.. note::
+    Requirements:
     - Web3 connection to Arbitrum network
     - No wallet/private key required (read-only operations)
 """
@@ -39,7 +41,16 @@ console = Console()
 
 
 def ohlcv_to_dataframe(ohlcv, symbol):
-    """Convert OHLCV list to pandas DataFrame."""
+    """
+    Convert OHLCV list to pandas DataFrame.
+
+    :param ohlcv: List of OHLCV candles
+    :type ohlcv: List[List]
+    :param symbol: Trading pair symbol
+    :type symbol: str
+    :returns: DataFrame with OHLCV data and symbol column
+    :rtype: pd.DataFrame
+    """
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     df["symbol"] = symbol
@@ -47,7 +58,14 @@ def ohlcv_to_dataframe(ohlcv, symbol):
 
 
 def calculate_technical_indicators(df):
-    """Calculate basic technical indicators."""
+    """
+    Calculate basic technical indicators.
+
+    :param df: DataFrame with OHLCV data
+    :type df: pd.DataFrame
+    :returns: DataFrame with added technical indicator columns
+    :rtype: pd.DataFrame
+    """
     # Simple Moving Averages
     df["sma_10"] = df["close"].rolling(window=10).mean()
     df["sma_20"] = df["close"].rolling(window=20).mean()
@@ -65,7 +83,13 @@ def calculate_technical_indicators(df):
 
 def fetch_ohlcv_example():
     """
-    Example 1: Basic OHLCV fetching with DataFrame analysis
+    Example 1: Basic OHLCV fetching with DataFrame analysis.
+
+    Demonstrates how to fetch OHLCV data for a single symbol,
+    convert to DataFrame, and calculate technical indicators.
+
+    :returns: DataFrame with OHLCV data and indicators
+    :rtype: pd.DataFrame
     """
     console.print(Panel.fit(
         "[bold cyan]Example 1: Fetch OHLCV Data (CCXT-style)[/bold cyan]",
@@ -145,7 +169,10 @@ def fetch_ohlcv_example():
 
 def fetch_multiple_timeframes():
     """
-    Example 2: Fetch and compare multiple timeframes
+    Example 2: Fetch and compare multiple timeframes.
+
+    Demonstrates how to fetch OHLCV data across different timeframes
+    and compare price movements and volatility.
     """
     console.print("\n\n")
     console.print(Panel.fit(
@@ -198,7 +225,10 @@ def fetch_multiple_timeframes():
 
 def fetch_with_since_parameter():
     """
-    Example 3: Fetch historical data and calculate returns
+    Example 3: Fetch historical data and calculate returns.
+
+    Demonstrates how to use the 'since' parameter to fetch data
+    from a specific timestamp and calculate performance metrics.
     """
     console.print("\n\n")
     console.print(Panel.fit(
@@ -267,7 +297,10 @@ def fetch_with_since_parameter():
 
 def compare_multiple_tokens():
     """
-    Example 4: Compare multiple tokens with correlation analysis
+    Example 4: Compare multiple tokens with correlation analysis.
+
+    Demonstrates how to fetch data for multiple symbols simultaneously,
+    compare their performance, and calculate price correlations.
     """
     console.print("\n\n")
     console.print(Panel.fit(
@@ -378,7 +411,10 @@ def compare_multiple_tokens():
 
 def fetch_open_interest_example():
     """
-    Example 5: Fetch open interest for multiple markets
+    Example 5: Fetch open interest for multiple markets.
+
+    Demonstrates how to fetch current open interest data
+    with long/short position breakdowns and calculate position skew.
     """
     console.print("\n\n")
     console.print(Panel.fit(
@@ -448,7 +484,10 @@ def fetch_open_interest_example():
 
 def fetch_funding_rates_example():
     """
-    Example 6: Fetch funding rates for multiple markets
+    Example 6: Fetch funding rates for multiple markets.
+
+    Demonstrates how to fetch current funding rates with long/short breakdowns
+    and project hourly rates to daily and annual estimates.
     """
     console.print("\n\n")
     console.print(Panel.fit(
@@ -522,7 +561,10 @@ def fetch_funding_rates_example():
 
 def main():
     """
-    Run all examples
+    Run all examples.
+
+    Executes all example functions demonstrating the GMX CCXT interface,
+    including OHLCV data fetching, open interest, and funding rate analysis.
     """
     console.print("\n")
     console.print(Panel.fit(

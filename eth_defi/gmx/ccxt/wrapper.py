@@ -9,8 +9,8 @@ The wrapper implements the core CCXT methods like `fetch_ohlcv`, `load_markets`,
 provides the same data structures that CCXT users expect, making migration from
 centralized exchanges to GMX protocol straightforward.
 
-Example usage:
-    ```python
+Example usage::
+
     from web3 import Web3
     from eth_defi.gmx.config import GMXConfig
     from eth_defi.gmx.ccxt import GMXCCXTWrapper
@@ -23,9 +23,8 @@ Example usage:
     # Fetch OHLCV data (CCXT-style)
     ohlcv = exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
     # Returns: [[timestamp, open, high, low, close, volume], ...]
-    ```
 
-Note:
+.. note::
     GMX protocol does not provide volume data in candlesticks, so volume
     will always be 0 in the returned OHLCV arrays.
 """
@@ -48,21 +47,24 @@ class GMXCCXTWrapper:
     CCXT conventions. This allows traders to use GMX with minimal changes to
     existing CCXT-based trading systems.
 
-    Attributes:
-        config: GMX configuration object
-        api: GMX API client for market data
-        markets: Dictionary of available markets (populated by load_markets)
-        timeframes: Supported timeframe intervals
-        markets_loaded: Flag indicating if markets have been loaded
+    :ivar config: GMX configuration object
+    :vartype config: GMXConfig
+    :ivar api: GMX API client for market data
+    :vartype api: GMXAPI
+    :ivar markets: Dictionary of available markets (populated by load_markets)
+    :vartype markets: Dict[str, Any]
+    :ivar timeframes: Supported timeframe intervals
+    :vartype timeframes: Dict[str, str]
+    :ivar markets_loaded: Flag indicating if markets have been loaded
+    :vartype markets_loaded: bool
     """
 
     def __init__(self, config: GMXConfig):
         """
         Initialize the CCXT wrapper with GMX configuration.
 
-        Args:
-            config: GMX configuration object containing network settings
-                and optional wallet information
+        :param config: GMX configuration object containing network settings and optional wallet information
+        :type config: GMXConfig
         """
         self.config = config
         self.api = GMXAPI(config)
@@ -88,18 +90,16 @@ class GMXCCXTWrapper:
         CCXT-compatible market structures. Markets are cached after the first load
         to improve performance.
 
-        Args:
-            reload: If True, force reload markets even if already loaded
+        :param reload: If True, force reload markets even if already loaded
+        :type reload: bool
+        :returns: Dictionary mapping unified symbols (e.g., "ETH/USD") to market info
+        :rtype: Dict[str, Any]
 
-        Returns:
-            Dictionary mapping unified symbols (e.g., "ETH/USD") to market info
+        Example::
 
-        Example:
-            ```python
             markets = exchange.load_markets()
             print(markets["ETH/USD"])
             # {'id': 'ETH', 'symbol': 'ETH/USD', 'base': 'ETH', 'quote': 'USD', ...}
-            ```
         """
         if self.markets_loaded and not reload:
             return self.markets
@@ -150,14 +150,11 @@ class GMXCCXTWrapper:
         """
         Get market information for a specific trading pair.
 
-        Args:
-            symbol: Unified symbol (e.g., "ETH/USD")
-
-        Returns:
-            Market information dictionary
-
-        Raises:
-            ValueError: If markets haven't been loaded or symbol not found
+        :param symbol: Unified symbol (e.g., "ETH/USD")
+        :type symbol: str
+        :returns: Market information dictionary
+        :rtype: Dict[str, Any]
+        :raises ValueError: If markets haven't been loaded or symbol not found
         """
         if not self.markets_loaded:
             raise ValueError(
@@ -184,20 +181,22 @@ class GMXCCXTWrapper:
         It returns a list of OHLCV candles where each candle is a list of
         [timestamp, open, high, low, close, volume].
 
-        Args:
-            symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
-            timeframe: Candlestick interval - "1m", "5m", "15m", "1h", "4h", "1d"
-            since: Unix timestamp in milliseconds for the earliest candle to fetch
-                (Note: GMX API returns recent candles, filtering is done client-side)
-            limit: Maximum number of candles to return
-            params: Additional parameters (e.g., {"until": timestamp_ms})
+        :param symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
+        :type symbol: str
+        :param timeframe: Candlestick interval - "1m", "5m", "15m", "1h", "4h", "1d"
+        :type timeframe: str
+        :param since: Unix timestamp in milliseconds for the earliest candle to fetch (Note: GMX API returns recent candles, filtering is done client-side)
+        :type since: Optional[int]
+        :param limit: Maximum number of candles to return
+        :type limit: Optional[int]
+        :param params: Additional parameters (e.g., {"until": timestamp_ms})
+        :type params: Optional[Dict[str, Any]]
+        :returns: List of OHLCV candles, each as [timestamp_ms, open, high, low, close, volume]. Volume is always 0 as GMX API doesn't provide volume data
+        :rtype: List[List]
+        :raises ValueError: If invalid symbol or timeframe
 
-        Returns:
-            List of OHLCV candles, each as [timestamp_ms, open, high, low, close, volume]
-            Note: Volume is always 0 as GMX API doesn't provide volume data
+        Example::
 
-        Example:
-            ```python
             # Fetch last 100 hourly candles for ETH
             candles = exchange.fetch_ohlcv("ETH/USD", "1h", limit=100)
 
@@ -209,10 +208,6 @@ class GMXCCXTWrapper:
             for candle in candles:
                 timestamp, o, h, l, c, v = candle
                 print(f"{timestamp}: O:{o} H:{h} L:{l} C:{c} V:{v}")
-            ```
-
-        Raises:
-            ValueError: If invalid symbol or timeframe
         """
         if params is None:
             params = {}
@@ -255,13 +250,12 @@ class GMXCCXTWrapper:
         positions on GMX protocol. Open interest represents the total value of all
         outstanding positions.
 
-        Args:
-            symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
-            params: Additional parameters (not used currently)
+        :param symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
+        :type symbol: str
+        :param params: Additional parameters (not used currently)
+        :type params: Optional[Dict[str, Any]]
+        :returns: Dictionary with open interest information::
 
-        Returns:
-            Dictionary with open interest information:
-            ```python
             {
                 'symbol': 'ETH/USD',
                 'baseVolume': 0,  # Not provided by GMX
@@ -274,21 +268,19 @@ class GMXCCXTWrapper:
                 'datetime': '2021-01-01T00:00:00.000Z',
                 'info': {...}  # Raw GMX data
             }
-            ```
 
-        Example:
-            ```python
+        :rtype: Dict[str, Any]
+        :raises ValueError: If invalid symbol or markets not loaded
+
+        Example::
+
             # Get current open interest for ETH
             oi = exchange.fetch_open_interest("ETH/USD")
             print(f"Total OI: ${oi['openInterestValue']:,.0f}")
             print(f"Long OI: ${oi['longOpenInterest']:,.0f}")
             print(f"Short OI: ${oi['shortOpenInterest']:,.0f}")
-            ```
 
-        Raises:
-            ValueError: If invalid symbol or markets not loaded
-
-        Note:
+        .. note::
             GMX provides open interest in USD value only. The openInterestAmount
             field (contracts) is not available and set to 0.
         """
@@ -344,17 +336,21 @@ class GMXCCXTWrapper:
         GMX protocol does not provide historical open interest data through its APIs.
         This method is included for CCXT compatibility but will raise NotImplementedError.
 
-        Args:
-            symbol: Unified symbol (e.g., "ETH/USD")
-            timeframe: Time interval (not used)
-            since: Start timestamp in milliseconds (not used)
-            limit: Maximum number of records (not used)
-            params: Additional parameters (not used)
+        :param symbol: Unified symbol (e.g., "ETH/USD")
+        :type symbol: str
+        :param timeframe: Time interval (not used)
+        :type timeframe: str
+        :param since: Start timestamp in milliseconds (not used)
+        :type since: Optional[int]
+        :param limit: Maximum number of records (not used)
+        :type limit: Optional[int]
+        :param params: Additional parameters (not used)
+        :type params: Optional[Dict[str, Any]]
+        :returns: This method always raises NotImplementedError
+        :rtype: List[Dict[str, Any]]
+        :raises NotImplementedError: Always raised as GMX doesn't support this
 
-        Raises:
-            NotImplementedError: Always raised as GMX doesn't support this
-
-        Note:
+        .. note::
             To get current open interest, use fetch_open_interest() instead.
             For historical blockchain data, consider using GMX Subgraph/Subsquid.
         """
@@ -376,13 +372,12 @@ class GMXCCXTWrapper:
         positions on GMX protocol. Funding rates represent the cost/reward of holding
         leveraged positions.
 
-        Args:
-            symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
-            params: Additional parameters (not used currently)
+        :param symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
+        :type symbol: str
+        :param params: Additional parameters (not used currently)
+        :type params: Optional[Dict[str, Any]]
+        :returns: Dictionary with funding rate information::
 
-        Returns:
-            Dictionary with funding rate information:
-            ```python
             {
                 'symbol': 'ETH/USD',
                 'fundingRate': 0.0001,  # Weighted average (as decimal)
@@ -394,10 +389,12 @@ class GMXCCXTWrapper:
                 'datetime': '2021-01-01T00:00:00.000Z',
                 'info': {...}  # Raw GMX data
             }
-            ```
 
-        Example:
-            ```python
+        :rtype: Dict[str, Any]
+        :raises ValueError: If invalid symbol or markets not loaded
+
+        Example::
+
             # Get current funding rate for BTC
             fr = exchange.fetch_funding_rate("BTC/USD")
             print(f"Long funding: {fr['longFundingRate']:.6f}")
@@ -405,12 +402,8 @@ class GMXCCXTWrapper:
 
             # Positive rate = longs pay shorts
             # Negative rate = shorts pay longs
-            ```
 
-        Raises:
-            ValueError: If invalid symbol or markets not loaded
-
-        Note:
+        .. note::
             GMX returns funding rates as hourly APR (factor per hour).
             Positive values mean longs pay shorts, negative means shorts pay longs.
         """
@@ -466,16 +459,19 @@ class GMXCCXTWrapper:
         GMX protocol does not provide historical funding rate data through its APIs.
         This method is included for CCXT compatibility but will raise NotImplementedError.
 
-        Args:
-            symbol: Unified symbol (e.g., "ETH/USD")
-            since: Start timestamp in milliseconds (not used)
-            limit: Maximum number of records (not used)
-            params: Additional parameters (not used)
+        :param symbol: Unified symbol (e.g., "ETH/USD")
+        :type symbol: str
+        :param since: Start timestamp in milliseconds (not used)
+        :type since: Optional[int]
+        :param limit: Maximum number of records (not used)
+        :type limit: Optional[int]
+        :param params: Additional parameters (not used)
+        :type params: Optional[Dict[str, Any]]
+        :returns: This method always raises NotImplementedError
+        :rtype: List[Dict[str, Any]]
+        :raises NotImplementedError: Always raised as GMX doesn't support this
 
-        Raises:
-            NotImplementedError: Always raised as GMX doesn't support this
-
-        Note:
+        .. note::
             To get current funding rates, use fetch_funding_rate() instead.
             For historical blockchain data, consider using GMX Subgraph/Subsquid.
         """
@@ -500,16 +496,20 @@ class GMXCCXTWrapper:
         Converts GMX candlestick data (5 fields) to CCXT format (6 fields with volume).
         Applies filtering based on 'since' timestamp and 'limit' parameters.
 
-        Args:
-            ohlcvs: List of raw OHLCV data from GMX API
-            market: Market information dictionary (optional)
-            timeframe: Candlestick interval
-            since: Filter candles after this timestamp (ms)
-            limit: Maximum number of candles to return
-            use_tail: If True, return the most recent candles when limiting
-
-        Returns:
-            List of parsed OHLCV candles in CCXT format
+        :param ohlcvs: List of raw OHLCV data from GMX API
+        :type ohlcvs: List[List]
+        :param market: Market information dictionary (optional)
+        :type market: Optional[Dict[str, Any]]
+        :param timeframe: Candlestick interval
+        :type timeframe: str
+        :param since: Filter candles after this timestamp (ms)
+        :type since: Optional[int]
+        :param limit: Maximum number of candles to return
+        :type limit: Optional[int]
+        :param use_tail: If True, return the most recent candles when limiting
+        :type use_tail: bool
+        :returns: List of parsed OHLCV candles in CCXT format
+        :rtype: List[List]
         """
         parsed = [self.parse_ohlcv(ohlcv, market) for ohlcv in ohlcvs]
 
@@ -542,13 +542,12 @@ class GMXCCXTWrapper:
         GMX returns: [timestamp_seconds, open, high, low, close]
         CCXT expects: [timestamp_ms, open, high, low, close, volume]
 
-        Args:
-            ohlcv: Single candle data from GMX [timestamp_s, open, high, low, close]
-            market: Market information dictionary (optional)
-
-        Returns:
-            Parsed candle in CCXT format [timestamp_ms, open, high, low, close, volume]
-            Note: Volume is set to None as GMX doesn't provide it
+        :param ohlcv: Single candle data from GMX [timestamp_s, open, high, low, close]
+        :type ohlcv: List
+        :param market: Market information dictionary (optional)
+        :type market: Optional[Dict[str, Any]]
+        :returns: Parsed candle in CCXT format [timestamp_ms, open, high, low, close, volume]. Volume is set to 0 as GMX doesn't provide it
+        :rtype: List
         """
         # GMX format: [timestamp (seconds), open, high, low, close]
         # CCXT format: [timestamp (milliseconds), open, high, low, close, volume]
@@ -572,17 +571,15 @@ class GMXCCXTWrapper:
         """
         Convert timeframe string to duration in seconds.
 
-        Args:
-            timeframe: Timeframe string (e.g., "1m", "1h", "1d")
+        :param timeframe: Timeframe string (e.g., "1m", "1h", "1d")
+        :type timeframe: str
+        :returns: Duration in seconds
+        :rtype: int
 
-        Returns:
-            Duration in seconds
+        Example::
 
-        Example:
-            ```python
             seconds = exchange.parse_timeframe("1h")  # Returns 3600
             seconds = exchange.parse_timeframe("1d")  # Returns 86400
-            ```
         """
         timeframe_mapping = {
             "1m": 60,
@@ -602,14 +599,13 @@ class GMXCCXTWrapper:
         """
         Get current Unix timestamp in milliseconds.
 
-        Returns:
-            Current timestamp in milliseconds
+        :returns: Current timestamp in milliseconds
+        :rtype: int
 
-        Example:
-            ```python
+        Example::
+
             now = exchange.milliseconds()
             print(f"Current time: {now} ms")
-            ```
         """
         return int(time.time() * 1000)
 
@@ -622,13 +618,14 @@ class GMXCCXTWrapper:
         """
         Safely extract an integer value from a dictionary.
 
-        Args:
-            dictionary: Dictionary to extract from
-            key: Key to look up
-            default: Default value if key not found
-
-        Returns:
-            Integer value or default
+        :param dictionary: Dictionary to extract from
+        :type dictionary: Dict[str, Any]
+        :param key: Key to look up
+        :type key: str
+        :param default: Default value if key not found
+        :type default: Optional[int]
+        :returns: Integer value or default
+        :rtype: Optional[int]
         """
         value = dictionary.get(key, default)
         if value is None:
@@ -647,13 +644,14 @@ class GMXCCXTWrapper:
         """
         Safely extract a string value from a dictionary.
 
-        Args:
-            dictionary: Dictionary to extract from
-            key: Key to look up
-            default: Default value if key not found
-
-        Returns:
-            String value or default
+        :param dictionary: Dictionary to extract from
+        :type dictionary: Dict[str, Any]
+        :param key: Key to look up
+        :type key: str
+        :param default: Default value if key not found
+        :type default: Optional[str]
+        :returns: String value or default
+        :rtype: Optional[str]
         """
         value = dictionary.get(key, default)
         if value is None:
@@ -664,12 +662,12 @@ class GMXCCXTWrapper:
         """
         Add two numbers safely.
 
-        Args:
-            a: First number
-            b: Second number
-
-        Returns:
-            Sum of a and b
+        :param a: First number
+        :type a: float
+        :param b: Second number
+        :type b: float
+        :returns: Sum of a and b
+        :rtype: float
         """
         return a + b
 
@@ -677,11 +675,11 @@ class GMXCCXTWrapper:
         """
         Create a new dictionary excluding specified keys.
 
-        Args:
-            dictionary: Source dictionary
-            keys: List of keys to exclude
-
-        Returns:
-            New dictionary without the specified keys
+        :param dictionary: Source dictionary
+        :type dictionary: Dict[str, Any]
+        :param keys: List of keys to exclude
+        :type keys: List[str]
+        :returns: New dictionary without the specified keys
+        :rtype: Dict[str, Any]
         """
         return {k: v for k, v in dictionary.items() if k not in keys}

@@ -11,7 +11,12 @@ from eth_defi.gmx.ccxt.wrapper import GMXCCXTWrapper
 
 @pytest.fixture
 def mock_config():
-    """Create a mock GMX config."""
+    """
+    Create a mock GMX config.
+
+    :returns: Mock GMX configuration object
+    :rtype: Mock
+    """
     config = Mock()
     config.get_chain.return_value = "arbitrum"
     return config
@@ -19,7 +24,12 @@ def mock_config():
 
 @pytest.fixture
 def mock_api():
-    """Create a mock GMX API."""
+    """
+    Create a mock GMX API.
+
+    :returns: Mock GMX API object with tokens and candlestick data
+    :rtype: Mock
+    """
     api = Mock()
     # Mock token response
     api.get_tokens.return_value = {
@@ -42,7 +52,12 @@ def mock_api():
 
 @pytest.fixture
 def mock_open_interest():
-    """Create a mock open interest response."""
+    """
+    Create a mock open interest response.
+
+    :returns: Mock open interest data with long/short positions
+    :rtype: Dict[str, Any]
+    """
     return {
         "long": {
             "ETH": 50000000.0,  # $50M long
@@ -60,7 +75,12 @@ def mock_open_interest():
 
 @pytest.fixture
 def mock_funding_rate():
-    """Create a mock funding rate response."""
+    """
+    Create a mock funding rate response.
+
+    :returns: Mock funding rate data with long/short rates
+    :rtype: Dict[str, Any]
+    """
     return {
         "long": {
             "ETH": 0.0001,  # 0.01% per hour
@@ -77,7 +97,11 @@ def mock_funding_rate():
 
 
 def test_initialization(mock_config):
-    """Test CCXT wrapper initialization."""
+    """Test CCXT wrapper initialization.
+
+    Verifies that the GMX CCXT wrapper initializes correctly with config,
+    sets up timeframes, and initializes markets_loaded flag to False.
+    """
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI"):
         wrapper = GMXCCXTWrapper(mock_config)
 

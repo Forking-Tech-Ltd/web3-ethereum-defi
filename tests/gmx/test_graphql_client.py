@@ -257,3 +257,98 @@ def test_case_sensitive_addresses(graphql_client):
     # Both should return lists (but may have different content)
     assert isinstance(positions_checksummed, list)
     assert isinstance(positions_lowercase, list)
+
+
+def test_get_market_infos(graphql_client):
+    """Test fetching market information snapshots."""
+    # Get market infos without filters
+    market_infos = graphql_client.get_market_infos(limit=5)
+
+    # Should return a list
+    assert isinstance(market_infos, list)
+
+    # If there are results, check structure
+    if len(market_infos) > 0:
+        info = market_infos[0]
+        assert isinstance(info, dict)
+        assert "id" in info
+        assert "marketTokenAddress" in info
+        assert "longOpenInterestUsd" in info
+        assert "shortOpenInterestUsd" in info
+        assert "fundingFactorPerSecond" in info
+
+
+def test_get_market_infos_with_filter(graphql_client):
+    """Test fetching market info for a specific market."""
+    # Use a known market address (ETH/USD market on Arbitrum)
+    market_address = "0x70d95587d40A2caf56bd97485aB3Eec10Bee6336"
+
+    market_infos = graphql_client.get_market_infos(
+        market_address=market_address,
+        limit=3
+    )
+
+    # Should return a list
+    assert isinstance(market_infos, list)
+
+    # Check that all results match the filter
+    for info in market_infos:
+        assert info["marketTokenAddress"] == market_address
+
+
+def test_get_borrowing_rate_snapshots(graphql_client):
+    """Test fetching borrowing rate snapshots."""
+    # Get borrowing rate snapshots without filters
+    snapshots = graphql_client.get_borrowing_rate_snapshots(limit=5)
+
+    # Should return a list
+    assert isinstance(snapshots, list)
+
+    # If there are results, check structure
+    if len(snapshots) > 0:
+        snapshot = snapshots[0]
+        assert isinstance(snapshot, dict)
+        assert "id" in snapshot
+        assert "marketAddress" in snapshot
+        assert "isLong" in snapshot
+        assert "borrowingRate" in snapshot
+        assert "timestamp" in snapshot
+
+
+def test_get_borrowing_rate_snapshots_with_filters(graphql_client):
+    """Test fetching borrowing rate snapshots with filters."""
+    # Use a known market address
+    market_address = "0x70d95587d40A2caf56bd97485aB3Eec10Bee6336"
+
+    snapshots = graphql_client.get_borrowing_rate_snapshots(
+        market_address=market_address,
+        is_long=True,
+        limit=3
+    )
+
+    # Should return a list
+    assert isinstance(snapshots, list)
+
+    # Check that all results match the filters
+    for snapshot in snapshots:
+        assert snapshot["marketAddress"] == market_address
+        assert snapshot["isLong"] is True
+
+
+def test_get_markets(graphql_client):
+    """Test fetching all available markets."""
+    markets = graphql_client.get_markets()
+
+    # Should return a list
+    assert isinstance(markets, list)
+
+    # Markets list should not be empty
+    assert len(markets) > 0
+
+    # Check structure of first market
+    market = markets[0]
+    assert isinstance(market, dict)
+    assert "id" in market
+    assert "indexToken" in market
+    assert "longToken" in market
+    assert "shortToken" in market

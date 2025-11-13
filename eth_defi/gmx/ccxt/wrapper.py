@@ -146,6 +146,66 @@ class GMXCCXTWrapper:
         self.markets_loaded = True
         return self.markets
 
+    def fetch_markets(self, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch all available markets from GMX protocol.
+
+        This method fetches market data from GMX and returns it as a list of market structures.
+        Unlike load_markets(), this method does not cache the results and always fetches fresh data.
+
+        :param params: Additional parameters (not used currently)
+        :type params: Optional[Dict[str, Any]]
+        :returns: List of market structures
+        :rtype: List[Dict[str, Any]]
+
+        Example::
+
+            markets = exchange.fetch_markets()
+            for market in markets:
+                print(f"{market['symbol']}: {market['base']}/{market['quote']}")
+        """
+        if params is None:
+            params = {}
+
+        tokens_response = self.api.get_tokens()
+        markets = []
+
+        for token in tokens_response.get("tokens", []):
+            symbol_name = token.get("symbol", "")
+            if not symbol_name:
+                continue
+
+            unified_symbol = f"{symbol_name}/USD"
+
+            market = {
+                "id": symbol_name,
+                "symbol": unified_symbol,
+                "base": symbol_name,
+                "quote": "USD",
+                "baseId": symbol_name,
+                "quoteId": "USD",
+                "active": True,
+                "type": "spot",
+                "spot": True,
+                "swap": False,
+                "future": False,
+                "option": False,
+                "contract": False,
+                "precision": {
+                    "amount": 8,
+                    "price": 8,
+                },
+                "limits": {
+                    "amount": {"min": None, "max": None},
+                    "price": {"min": None, "max": None},
+                    "cost": {"min": None, "max": None},
+                },
+                "info": token,
+            }
+            markets.append(market)
+
+        return markets
+
     def market(self, symbol: str) -> Dict[str, Any]:
         """
         Get market information for a specific trading pair.

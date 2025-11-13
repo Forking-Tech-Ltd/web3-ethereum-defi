@@ -283,6 +283,48 @@ def test_load_markets_reload(mock_config, mock_api):
         assert call_count_2 > call_count_1  # API called again
 
 
+def test_fetch_markets(mock_config, mock_api):
+    """
+    Test fetching markets without caching.
+
+    Verifies that fetch_markets returns a list of market structures
+    and does not cache the results.
+    """
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        wrapper = GMXCCXTWrapper(mock_config)
+
+        markets = wrapper.fetch_markets()
+
+        assert isinstance(markets, list)
+        assert len(markets) == 3
+        assert wrapper.markets_loaded is False
+
+        for market in markets:
+            assert "symbol" in market
+            assert "base" in market
+            assert "quote" in market
+            assert market["quote"] == "USD"
+
+        symbols = [m["symbol"] for m in markets]
+        assert "ETH/USD" in symbols
+        assert "BTC/USD" in symbols
+        assert "ARB/USD" in symbols
+
+
+def test_fetch_markets_no_caching(mock_config, mock_api):
+    """Test that fetch_markets does not cache results."""
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        wrapper = GMXCCXTWrapper(mock_config)
+
+        wrapper.fetch_markets()
+        call_count_1 = mock_api.get_tokens.call_count
+
+        wrapper.fetch_markets()
+        call_count_2 = mock_api.get_tokens.call_count
+
+        assert call_count_2 > call_count_1
+
+
 def test_fetch_ohlcv(mock_config, mock_api):
     """Test fetching OHLCV data."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):

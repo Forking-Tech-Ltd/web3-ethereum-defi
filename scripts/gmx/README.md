@@ -10,6 +10,12 @@ poetry install --extras "web3v6 data"
 
 ## Examples
 
+### Fetch Markets
+```bash
+python scripts/gmx/example_fetch_markets.py
+```
+Fetches all available markets without caching.
+
 ### Basic OHLCV Data
 ```bash
 python scripts/gmx/example_fetch_ohlcv.py

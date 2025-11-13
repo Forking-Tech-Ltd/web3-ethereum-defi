@@ -36,7 +36,7 @@ from eth_defi.gmx.config import GMXConfig
 from eth_defi.gmx.api import GMXAPI
 from eth_defi.gmx.core.open_interest import GetOpenInterest
 from eth_defi.gmx.core.funding_fee import GetFundingFee
-from eth_defi.gmx.subsquid import GMXSubsquidClient
+from eth_defi.gmx.graphql.client import GMXSubsquidClient
 
 
 class GMXCCXTWrapper:
@@ -73,7 +73,11 @@ class GMXCCXTWrapper:
         """
         self.config = config
         self.api = GMXAPI(config)
-        self.subsquid = GMXSubsquidClient(endpoint=subsquid_endpoint) if subsquid_endpoint else GMXSubsquidClient()
+
+        # Initialize Subsquid client with chain from config
+        chain = config.get_chain()
+        self.subsquid = GMXSubsquidClient(chain=chain, custom_endpoint=subsquid_endpoint)
+
         self.markets: Dict[str, Any] = {}
         self.markets_loaded = False
 

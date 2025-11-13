@@ -40,6 +40,42 @@ def mock_api():
     return api
 
 
+@pytest.fixture
+def mock_open_interest():
+    """Create a mock open interest response."""
+    return {
+        "long": {
+            "ETH": 50000000.0,  # $50M long
+            "BTC": 120000000.0,  # $120M long
+            "ARB": 10000000.0,
+        },
+        "short": {
+            "ETH": 45000000.0,  # $45M short
+            "BTC": 115000000.0,  # $115M short
+            "ARB": 9500000.0,
+        },
+        "parameter": "open_interest",
+    }
+
+
+@pytest.fixture
+def mock_funding_rate():
+    """Create a mock funding rate response."""
+    return {
+        "long": {
+            "ETH": 0.0001,  # 0.01% per hour
+            "BTC": -0.0002,  # -0.02% per hour
+            "ARB": 0.00005,
+        },
+        "short": {
+            "ETH": -0.0001,
+            "BTC": 0.0002,
+            "ARB": -0.00005,
+        },
+        "parameter": "funding_apr",
+    }
+
+
 def test_initialization(mock_config):
     """Test CCXT wrapper initialization."""
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI"):
@@ -296,3 +332,95 @@ def test_omit(mock_config):
         assert "b" not in result
         assert "c" in result
         assert result == {"a": 1, "c": 3}
+
+
+def test_fetch_open_interest(mock_config, mock_api, mock_open_interest):
+    """Test fetching open interest."""
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        with patch("eth_defi.gmx.ccxt.wrapper.GetOpenInterest") as mock_oi:
+            # Setup mock
+            mock_oi_instance = Mock()
+            mock_oi_instance.get_data.return_value = mock_open_interest
+            mock_oi.return_value = mock_oi_instance
+
+            wrapper = GMXCCXTWrapper(mock_config)
+            wrapper.load_markets()
+
+            # Fetch open interest for ETH
+            oi = wrapper.fetch_open_interest("ETH/USD")
+
+            # Verify structure
+            assert oi["symbol"] == "ETH/USD"
+            assert oi["openInterestValue"] == 95000000.0  # 50M + 45M
+            assert oi["longOpenInterest"] == 50000000.0
+            assert oi["shortOpenInterest"] == 45000000.0
+            assert "timestamp" in oi
+            assert "datetime" in oi
+            assert "info" in oi
+
+
+def test_fetch_open_interest_invalid_symbol(mock_config, mock_api):
+    """Test error handling for fetch_open_interest with invalid symbol."""
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        wrapper = GMXCCXTWrapper(mock_config)
+        wrapper.load_markets()
+
+        with pytest.raises(ValueError, match="Market .* not found"):
+            wrapper.fetch_open_interest("INVALID/USD")
+
+
+def test_fetch_open_interest_history_not_supported(mock_config, mock_api):
+    """Test that fetch_open_interest_history raises NotImplementedError."""
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        wrapper = GMXCCXTWrapper(mock_config)
+        wrapper.load_markets()
+
+        with pytest.raises(NotImplementedError, match="historical open interest"):
+            wrapper.fetch_open_interest_history("ETH/USD", "1h")
+
+
+def test_fetch_funding_rate(mock_config, mock_api, mock_funding_rate):
+    """Test fetching funding rate."""
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        with patch("eth_defi.gmx.ccxt.wrapper.GetFundingFee") as mock_ff:
+            # Setup mock
+            mock_ff_instance = Mock()
+            mock_ff_instance.get_data.return_value = mock_funding_rate
+            mock_ff.return_value = mock_ff_instance
+
+            wrapper = GMXCCXTWrapper(mock_config)
+            wrapper.load_markets()
+
+            # Fetch funding rate for ETH
+            fr = wrapper.fetch_funding_rate("ETH/USD")
+
+            # Verify structure
+            assert fr["symbol"] == "ETH/USD"
+            assert fr["fundingRate"] == 0.0  # (0.0001 + -0.0001) / 2
+            assert fr["longFundingRate"] == 0.0001
+            assert fr["shortFundingRate"] == -0.0001
+            assert "timestamp" in fr
+            assert "datetime" in fr
+            assert "fundingTimestamp" in fr
+            assert "fundingDatetime" in fr
+            assert "info" in fr
+
+
+def test_fetch_funding_rate_invalid_symbol(mock_config, mock_api):
+    """Test error handling for fetch_funding_rate with invalid symbol."""
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        wrapper = GMXCCXTWrapper(mock_config)
+        wrapper.load_markets()
+
+        with pytest.raises(ValueError, match="Market .* not found"):
+            wrapper.fetch_funding_rate("INVALID/USD")
+
+
+def test_fetch_funding_rate_history_not_supported(mock_config, mock_api):
+    """Test that fetch_funding_rate_history raises NotImplementedError."""
+    with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
+        wrapper = GMXCCXTWrapper(mock_config)
+        wrapper.load_markets()
+
+        with pytest.raises(NotImplementedError, match="historical funding rate"):
+            wrapper.fetch_funding_rate_history("ETH/USD")

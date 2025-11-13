@@ -376,6 +376,150 @@ def compare_multiple_tokens():
         console.print(corr_table)
 
 
+def fetch_open_interest_example():
+    """
+    Example 5: Fetch open interest for multiple markets
+    """
+    console.print("\n\n")
+    console.print(Panel.fit(
+        "[bold cyan]Example 5: Open Interest Analysis[/bold cyan]",
+        border_style="cyan"
+    ))
+
+    web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
+    config = GMXConfig(web3)
+    exchange = GMXCCXTWrapper(config)
+
+    exchange.load_markets()
+
+    symbols = ["ETH/USD", "BTC/USD", "ARB/USD"]
+
+    console.print(f"\n[yellow]Fetching open interest for {len(symbols)} markets...[/yellow]\n")
+
+    # Create table for open interest
+    oi_table = Table(title="📊 GMX Open Interest", box=box.ROUNDED)
+    oi_table.add_column("Market", style="cyan", justify="left")
+    oi_table.add_column("Long OI", justify="right", style="green")
+    oi_table.add_column("Short OI", justify="right", style="red")
+    oi_table.add_column("Total OI", justify="right", style="bold")
+    oi_table.add_column("Long %", justify="right")
+    oi_table.add_column("Skew", justify="center")
+
+    for symbol in track(symbols, description="Loading..."):
+        try:
+            oi = exchange.fetch_open_interest(symbol)
+
+            long_oi = oi["longOpenInterest"]
+            short_oi = oi["shortOpenInterest"]
+            total_oi = oi["openInterestValue"]
+
+            # Calculate long percentage and skew
+            long_pct = (long_oi / total_oi * 100) if total_oi > 0 else 0
+            skew = long_oi - short_oi
+
+            # Determine skew direction
+            if skew > 0:
+                skew_indicator = "📈 Long"
+                skew_style = "green"
+            elif skew < 0:
+                skew_indicator = "📉 Short"
+                skew_style = "red"
+            else:
+                skew_indicator = "⚖️  Balanced"
+                skew_style = "yellow"
+
+            oi_table.add_row(
+                symbol.replace("/USD", ""),
+                f"${long_oi:,.0f}",
+                f"${short_oi:,.0f}",
+                f"${total_oi:,.0f}",
+                f"{long_pct:.1f}%",
+                f"[{skew_style}]{skew_indicator}[/{skew_style}]",
+            )
+        except Exception as e:
+            console.print(f"[red]Error fetching OI for {symbol}: {e}[/red]")
+
+    console.print(oi_table)
+
+    # Add interpretation note
+    console.print("\n[dim]Note: Open interest represents the total value of outstanding positions.[/dim]")
+    console.print("[dim]Higher long % indicates more bullish positioning.[/dim]")
+
+
+def fetch_funding_rates_example():
+    """
+    Example 6: Fetch funding rates for multiple markets
+    """
+    console.print("\n\n")
+    console.print(Panel.fit(
+        "[bold cyan]Example 6: Funding Rate Analysis[/bold cyan]",
+        border_style="cyan"
+    ))
+
+    web3 = Web3(Web3.HTTPProvider("https://arb1.arbitrum.io/rpc"))
+    config = GMXConfig(web3)
+    exchange = GMXCCXTWrapper(config)
+
+    exchange.load_markets()
+
+    symbols = ["ETH/USD", "BTC/USD", "ARB/USD"]
+
+    console.print(f"\n[yellow]Fetching funding rates for {len(symbols)} markets...[/yellow]\n")
+
+    # Create table for funding rates
+    fr_table = Table(title="💰 GMX Funding Rates (Hourly)", box=box.ROUNDED)
+    fr_table.add_column("Market", style="cyan", justify="left")
+    fr_table.add_column("Long Rate", justify="right")
+    fr_table.add_column("Short Rate", justify="right")
+    fr_table.add_column("Daily (Long)", justify="right")
+    fr_table.add_column("Annual (Long)", justify="right")
+    fr_table.add_column("Direction", justify="center")
+
+    for symbol in track(symbols, description="Loading..."):
+        try:
+            fr = exchange.fetch_funding_rate(symbol)
+
+            long_rate = fr["longFundingRate"]
+            short_rate = fr["shortFundingRate"]
+
+            # Calculate daily and annual rates (hourly rate * hours)
+            long_daily = long_rate * 24  # 24 hours
+            long_annual = long_rate * 24 * 365  # Annual
+
+            # Determine who pays whom
+            if long_rate > 0:
+                direction = "Longs pay Shorts"
+                direction_style = "red"
+            elif long_rate < 0:
+                direction = "Shorts pay Longs"
+                direction_style = "green"
+            else:
+                direction = "Balanced"
+                direction_style = "yellow"
+
+            # Style the rates
+            long_style = "red" if long_rate > 0 else "green"
+            short_style = "red" if short_rate > 0 else "green"
+
+            fr_table.add_row(
+                symbol.replace("/USD", ""),
+                f"[{long_style}]{long_rate * 100:.4f}%[/{long_style}]",
+                f"[{short_style}]{short_rate * 100:.4f}%[/{short_style}]",
+                f"{long_daily * 100:+.3f}%",
+                f"{long_annual * 100:+.2f}%",
+                f"[{direction_style}]{direction}[/{direction_style}]",
+            )
+        except Exception as e:
+            console.print(f"[red]Error fetching funding rate for {symbol}: {e}[/red]")
+
+    console.print(fr_table)
+
+    # Add interpretation note
+    console.print("\n[dim]Note: Positive rates mean longs pay shorts (bullish sentiment).[/dim]")
+    console.print("[dim]Negative rates mean shorts pay longs (bearish sentiment).[/dim]")
+    console.print("[dim]Rates are charged/earned hourly and compound over time.[/dim]")
+
+
 def main():
     """
     Run all examples
@@ -394,6 +538,8 @@ def main():
         fetch_multiple_timeframes()
         fetch_with_since_parameter()
         compare_multiple_tokens()
+        fetch_open_interest_example()
+        fetch_funding_rates_example()
 
         # Summary
         console.print("\n\n")
@@ -402,10 +548,11 @@ def main():
             "[cyan]Key Takeaways:[/cyan]\n"
             "• Use [bold]load_markets()[/bold] before fetching data\n"
             "• [bold]fetch_ohlcv()[/bold] returns [[timestamp_ms, O, H, L, C, V], ...]\n"
+            "• [bold]fetch_open_interest()[/bold] returns current open interest data\n"
+            "• [bold]fetch_funding_rate()[/bold] returns current funding rates\n"
             "• Volume is [yellow]0[/yellow] (GMX API doesn't provide volume)\n"
             "• Supported timeframes: [dim]1m, 5m, 15m, 1h, 4h, 1d[/dim]\n"
-            "• Use [bold]since[/bold] parameter for historical data (milliseconds)\n"
-            "• Use [bold]limit[/bold] parameter to control number of candles\n"
+            "• Historical OI/funding not available via API (use Subgraph)\n"
             "• Convert to pandas DataFrame for easy analysis",
             border_style="green",
             padding=(1, 2)

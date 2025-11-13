@@ -31,9 +31,12 @@ Note:
 """
 
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 import time
 from eth_defi.gmx.config import GMXConfig
 from eth_defi.gmx.api import GMXAPI
+from eth_defi.gmx.core.open_interest import GetOpenInterest
+from eth_defi.gmx.core.funding_fee import GetFundingFee
 
 
 class GMXCCXTWrapper:
@@ -239,6 +242,248 @@ class GMXCCXTWrapper:
         ohlcv = self.parse_ohlcvs(candles_data, market_info, timeframe, since, limit)
 
         return ohlcv
+
+    def fetch_open_interest(
+        self,
+        symbol: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch current open interest for a symbol.
+
+        This method returns the current open interest data for both long and short
+        positions on GMX protocol. Open interest represents the total value of all
+        outstanding positions.
+
+        Args:
+            symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
+            params: Additional parameters (not used currently)
+
+        Returns:
+            Dictionary with open interest information:
+            ```python
+            {
+                'symbol': 'ETH/USD',
+                'baseVolume': 0,  # Not provided by GMX
+                'quoteVolume': 0,  # Not provided by GMX
+                'openInterestAmount': 0,  # Not provided by GMX
+                'openInterestValue': 123456789.0,  # Total OI in USD
+                'longOpenInterest': 62000000.0,  # Long positions in USD
+                'shortOpenInterest': 61456789.0,  # Short positions in USD
+                'timestamp': 1234567890000,
+                'datetime': '2021-01-01T00:00:00.000Z',
+                'info': {...}  # Raw GMX data
+            }
+            ```
+
+        Example:
+            ```python
+            # Get current open interest for ETH
+            oi = exchange.fetch_open_interest("ETH/USD")
+            print(f"Total OI: ${oi['openInterestValue']:,.0f}")
+            print(f"Long OI: ${oi['longOpenInterest']:,.0f}")
+            print(f"Short OI: ${oi['shortOpenInterest']:,.0f}")
+            ```
+
+        Raises:
+            ValueError: If invalid symbol or markets not loaded
+
+        Note:
+            GMX provides open interest in USD value only. The openInterestAmount
+            field (contracts) is not available and set to 0.
+        """
+        if params is None:
+            params = {}
+
+        # Ensure markets are loaded
+        self.load_markets()
+
+        # Get market info
+        market_info = self.market(symbol)
+        gmx_symbol = market_info["base"]  # e.g., "ETH"
+
+        # Fetch open interest data from GMX
+        oi_data = GetOpenInterest(self.config).get_data()
+
+        # Extract long and short OI for this symbol
+        long_oi = oi_data.get("long", {}).get(gmx_symbol, 0)
+        short_oi = oi_data.get("short", {}).get(gmx_symbol, 0)
+        total_oi = long_oi + short_oi
+
+        timestamp = self.milliseconds()
+
+        return {
+            "symbol": symbol,
+            "baseVolume": 0,  # GMX doesn't provide volume
+            "quoteVolume": 0,  # GMX doesn't provide volume
+            "openInterestAmount": 0,  # GMX doesn't provide this (contracts)
+            "openInterestValue": total_oi,  # Total in USD
+            "longOpenInterest": long_oi,  # GMX-specific field
+            "shortOpenInterest": short_oi,  # GMX-specific field
+            "timestamp": timestamp,
+            "datetime": datetime.fromtimestamp(timestamp / 1000).isoformat() + "Z",
+            "info": {
+                "long": long_oi,
+                "short": short_oi,
+                "symbol": gmx_symbol,
+                "raw": oi_data,
+            },
+        }
+
+    def fetch_open_interest_history(
+        self,
+        symbol: str,
+        timeframe: str = "1h",
+        since: Optional[int] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch historical open interest data (NOT SUPPORTED).
+
+        GMX protocol does not provide historical open interest data through its APIs.
+        This method is included for CCXT compatibility but will raise NotImplementedError.
+
+        Args:
+            symbol: Unified symbol (e.g., "ETH/USD")
+            timeframe: Time interval (not used)
+            since: Start timestamp in milliseconds (not used)
+            limit: Maximum number of records (not used)
+            params: Additional parameters (not used)
+
+        Raises:
+            NotImplementedError: Always raised as GMX doesn't support this
+
+        Note:
+            To get current open interest, use fetch_open_interest() instead.
+            For historical blockchain data, consider using GMX Subgraph/Subsquid.
+        """
+        raise NotImplementedError(
+            "GMX protocol does not provide historical open interest data through "
+            "its REST API. Use fetch_open_interest() for current data, or query "
+            "the GMX Subgraph/Subsquid for historical blockchain data."
+        )
+
+    def fetch_funding_rate(
+        self,
+        symbol: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch current funding rate for a symbol.
+
+        This method returns the current funding rate (APR) for both long and short
+        positions on GMX protocol. Funding rates represent the cost/reward of holding
+        leveraged positions.
+
+        Args:
+            symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
+            params: Additional parameters (not used currently)
+
+        Returns:
+            Dictionary with funding rate information:
+            ```python
+            {
+                'symbol': 'ETH/USD',
+                'fundingRate': 0.0001,  # Weighted average (as decimal)
+                'longFundingRate': 0.00015,  # Long position rate
+                'shortFundingRate': -0.00005,  # Short position rate
+                'fundingTimestamp': 1234567890000,
+                'fundingDatetime': '2021-01-01T00:00:00.000Z',
+                'timestamp': 1234567890000,
+                'datetime': '2021-01-01T00:00:00.000Z',
+                'info': {...}  # Raw GMX data
+            }
+            ```
+
+        Example:
+            ```python
+            # Get current funding rate for BTC
+            fr = exchange.fetch_funding_rate("BTC/USD")
+            print(f"Long funding: {fr['longFundingRate']:.6f}")
+            print(f"Short funding: {fr['shortFundingRate']:.6f}")
+
+            # Positive rate = longs pay shorts
+            # Negative rate = shorts pay longs
+            ```
+
+        Raises:
+            ValueError: If invalid symbol or markets not loaded
+
+        Note:
+            GMX returns funding rates as hourly APR (factor per hour).
+            Positive values mean longs pay shorts, negative means shorts pay longs.
+        """
+        if params is None:
+            params = {}
+
+        # Ensure markets are loaded
+        self.load_markets()
+
+        # Get market info
+        market_info = self.market(symbol)
+        gmx_symbol = market_info["base"]  # e.g., "ETH"
+
+        # Fetch funding rate data from GMX
+        funding_data = GetFundingFee(self.config).get_data()
+
+        # Extract long and short funding rates for this symbol
+        long_funding = funding_data.get("long", {}).get(gmx_symbol, 0)
+        short_funding = funding_data.get("short", {}).get(gmx_symbol, 0)
+
+        # Calculate weighted average (simple average for now)
+        avg_funding = (long_funding + short_funding) / 2
+
+        timestamp = self.milliseconds()
+
+        return {
+            "symbol": symbol,
+            "fundingRate": avg_funding,  # Average rate
+            "longFundingRate": long_funding,  # GMX-specific field
+            "shortFundingRate": short_funding,  # GMX-specific field
+            "fundingTimestamp": timestamp,
+            "fundingDatetime": datetime.fromtimestamp(timestamp / 1000).isoformat() + "Z",
+            "timestamp": timestamp,
+            "datetime": datetime.fromtimestamp(timestamp / 1000).isoformat() + "Z",
+            "info": {
+                "long": long_funding,
+                "short": short_funding,
+                "symbol": gmx_symbol,
+                "raw": funding_data,
+            },
+        }
+
+    def fetch_funding_rate_history(
+        self,
+        symbol: str,
+        since: Optional[int] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch historical funding rate data (NOT SUPPORTED).
+
+        GMX protocol does not provide historical funding rate data through its APIs.
+        This method is included for CCXT compatibility but will raise NotImplementedError.
+
+        Args:
+            symbol: Unified symbol (e.g., "ETH/USD")
+            since: Start timestamp in milliseconds (not used)
+            limit: Maximum number of records (not used)
+            params: Additional parameters (not used)
+
+        Raises:
+            NotImplementedError: Always raised as GMX doesn't support this
+
+        Note:
+            To get current funding rates, use fetch_funding_rate() instead.
+            For historical blockchain data, consider using GMX Subgraph/Subsquid.
+        """
+        raise NotImplementedError(
+            "GMX protocol does not provide historical funding rate data through "
+            "its REST API. Use fetch_funding_rate() for current data, or query "
+            "the GMX Subgraph/Subsquid for historical blockchain data."
+        )
 
     def parse_ohlcvs(
         self,

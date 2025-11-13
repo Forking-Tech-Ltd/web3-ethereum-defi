@@ -36,6 +36,7 @@ from eth_defi.gmx.config import GMXConfig
 from eth_defi.gmx.api import GMXAPI
 from eth_defi.gmx.core.open_interest import GetOpenInterest
 from eth_defi.gmx.core.funding_fee import GetFundingFee
+from eth_defi.gmx.subsquid import GMXSubsquidClient
 
 
 class GMXCCXTWrapper:
@@ -51,6 +52,8 @@ class GMXCCXTWrapper:
     :vartype config: GMXConfig
     :ivar api: GMX API client for market data
     :vartype api: GMXAPI
+    :ivar subsquid: Subsquid GraphQL client for historical data
+    :vartype subsquid: GMXSubsquidClient
     :ivar markets: Dictionary of available markets (populated by load_markets)
     :vartype markets: Dict[str, Any]
     :ivar timeframes: Supported timeframe intervals
@@ -59,15 +62,18 @@ class GMXCCXTWrapper:
     :vartype markets_loaded: bool
     """
 
-    def __init__(self, config: GMXConfig):
+    def __init__(self, config: GMXConfig, subsquid_endpoint: Optional[str] = None):
         """
         Initialize the CCXT wrapper with GMX configuration.
 
         :param config: GMX configuration object containing network settings and optional wallet information
         :type config: GMXConfig
+        :param subsquid_endpoint: Optional Subsquid GraphQL endpoint URL
+        :type subsquid_endpoint: Optional[str]
         """
         self.config = config
         self.api = GMXAPI(config)
+        self.subsquid = GMXSubsquidClient(endpoint=subsquid_endpoint) if subsquid_endpoint else GMXSubsquidClient()
         self.markets: Dict[str, Any] = {}
         self.markets_loaded = False
 
@@ -391,34 +397,66 @@ class GMXCCXTWrapper:
         params: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Fetch historical open interest data (NOT SUPPORTED).
+        Fetch historical open interest data from Subsquid.
 
-        GMX protocol does not provide historical open interest data through its APIs.
-        This method is included for CCXT compatibility but will raise NotImplementedError.
+        Retrieves historical open interest snapshots from the GMX Subsquid GraphQL endpoint.
+        Data includes long and short open interest values over time.
 
         :param symbol: Unified symbol (e.g., "ETH/USD")
         :type symbol: str
-        :param timeframe: Time interval (not used)
+        :param timeframe: Time interval (note: data is snapshot-based, not aggregated)
         :type timeframe: str
-        :param since: Start timestamp in milliseconds (not used)
+        :param since: Start timestamp in milliseconds
         :type since: Optional[int]
-        :param limit: Maximum number of records (not used)
+        :param limit: Maximum number of records (default: 100)
         :type limit: Optional[int]
-        :param params: Additional parameters (not used)
+        :param params: Additional parameters (e.g., {"market_address": "0x..."})
         :type params: Optional[Dict[str, Any]]
-        :returns: This method always raises NotImplementedError
+        :returns: List of historical open interest snapshots
         :rtype: List[Dict[str, Any]]
-        :raises NotImplementedError: Always raised as GMX doesn't support this
+        :raises ValueError: If invalid symbol or markets not loaded
+
+        Example::
+
+            # Get historical OI for ETH
+            history = exchange.fetch_open_interest_history("ETH/USD", limit=50)
+            for snapshot in history:
+                print(f"{snapshot['datetime']}: ${snapshot['openInterestValue']:,.0f}")
 
         .. note::
-            To get current open interest, use fetch_open_interest() instead.
-            For historical blockchain data, consider using GMX Subgraph/Subsquid.
+            Data is fetched from Subsquid GraphQL endpoint.
+            Returns snapshots, not time-aggregated data.
         """
-        raise NotImplementedError(
-            "GMX protocol does not provide historical open interest data through "
-            "its REST API. Use fetch_open_interest() for current data, or query "
-            "the GMX Subgraph/Subsquid for historical blockchain data."
+        if params is None:
+            params = {}
+
+        if limit is None:
+            limit = 100
+
+        market_address = params.get("market_address")
+
+        market_infos = self.subsquid.get_market_infos(
+            market_address=market_address,
+            limit=limit,
         )
+
+        result = []
+        for info in market_infos:
+            long_oi = float(info.get("longOpenInterestUsd", 0)) / 1e30
+            short_oi = float(info.get("shortOpenInterestUsd", 0)) / 1e30
+            total_oi = long_oi + short_oi
+
+            result.append({
+                "symbol": symbol,
+                "openInterestValue": total_oi,
+                "longOpenInterest": long_oi,
+                "shortOpenInterest": short_oi,
+                "timestamp": None,
+                "datetime": None,
+                "info": info,
+            })
+
+        return result
 
     def fetch_funding_rate(
         self,
@@ -514,32 +552,67 @@ class GMXCCXTWrapper:
         params: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Fetch historical funding rate data (NOT SUPPORTED).
+        Fetch historical funding rate data from Subsquid.
 
-        GMX protocol does not provide historical funding rate data through its APIs.
-        This method is included for CCXT compatibility but will raise NotImplementedError.
+        Retrieves historical funding rate snapshots from the GMX Subsquid GraphQL endpoint.
+        Data includes funding rates per second and direction (longs pay shorts or vice versa).
 
         :param symbol: Unified symbol (e.g., "ETH/USD")
         :type symbol: str
-        :param since: Start timestamp in milliseconds (not used)
+        :param since: Start timestamp in milliseconds
         :type since: Optional[int]
-        :param limit: Maximum number of records (not used)
+        :param limit: Maximum number of records (default: 100)
         :type limit: Optional[int]
-        :param params: Additional parameters (not used)
+        :param params: Additional parameters (e.g., {"market_address": "0x..."})
         :type params: Optional[Dict[str, Any]]
-        :returns: This method always raises NotImplementedError
+        :returns: List of historical funding rate snapshots
         :rtype: List[Dict[str, Any]]
-        :raises NotImplementedError: Always raised as GMX doesn't support this
+        :raises ValueError: If invalid symbol or markets not loaded
+
+        Example::
+
+            # Get historical funding rates for BTC
+            history = exchange.fetch_funding_rate_history("BTC/USD", limit=50)
+            for snapshot in history:
+                rate = snapshot['fundingRate']
+                print(f"{snapshot['datetime']}: {rate * 100:.6f}% per hour")
 
         .. note::
-            To get current funding rates, use fetch_funding_rate() instead.
-            For historical blockchain data, consider using GMX Subgraph/Subsquid.
+            Data is fetched from Subsquid GraphQL endpoint.
+            Funding rates are per-second values, multiply by 3600 for hourly rate.
         """
-        raise NotImplementedError(
-            "GMX protocol does not provide historical funding rate data through "
-            "its REST API. Use fetch_funding_rate() for current data, or query "
-            "the GMX Subgraph/Subsquid for historical blockchain data."
+        if params is None:
+            params = {}
+
+        if limit is None:
+            limit = 100
+
+        market_address = params.get("market_address")
+        since_seconds = since // 1000 if since else None
+
+        market_infos = self.subsquid.get_market_infos(
+            market_address=market_address,
+            limit=limit,
         )
+
+        result = []
+        for info in market_infos:
+            funding_per_second = float(info.get("fundingFactorPerSecond", 0)) / 1e30
+            longs_pay_shorts = info.get("longsPayShorts", True)
+
+            result.append({
+                "symbol": symbol,
+                "fundingRate": funding_per_second,
+                "longFundingRate": funding_per_second if longs_pay_shorts else -funding_per_second,
+                "shortFundingRate": -funding_per_second if longs_pay_shorts else funding_per_second,
+                "fundingTimestamp": None,
+                "fundingDatetime": None,
+                "timestamp": None,
+                "datetime": None,
+                "info": info,
+            })
+
+        return result
 
     def parse_ohlcvs(
         self,

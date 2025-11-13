@@ -52,8 +52,21 @@ python scripts/gmx/example_funding_rates.py
 ```
 Fetches current funding rates and projects to daily/annual rates.
 
+### Historical Open Interest
+```bash
+python scripts/gmx/example_historical_open_interest.py
+```
+Retrieves historical open interest snapshots from Subsquid GraphQL endpoint.
+
+### Historical Funding Rates
+```bash
+python scripts/gmx/example_historical_funding_rates.py
+```
+Fetches historical funding rate data from Subsquid GraphQL endpoint.
+
 ## Notes
 
 - All examples connect to Arbitrum mainnet RPC
 - No wallet or private key required (read-only operations)
 - Volume data is always 0 (GMX API limitation)
+- Historical data examples use GMX Subsquid GraphQL indexer

@@ -31,12 +31,12 @@ def mock_api():
     :rtype: Mock
     """
     api = Mock()
-    # Mock token response
+    # Mock token response (include market_token for Subsquid queries)
     api.get_tokens.return_value = {
         "tokens": [
-            {"symbol": "ETH", "address": "0x123"},
-            {"symbol": "BTC", "address": "0x456"},
-            {"symbol": "ARB", "address": "0x789"},
+            {"symbol": "ETH", "address": "0x123", "market_token": "0xETHMarket"},
+            {"symbol": "BTC", "address": "0x456", "market_token": "0xBTCMarket"},
+            {"symbol": "ARB", "address": "0x789", "market_token": "0xARBMarket"},
         ]
     }
     # Mock candlesticks response (GMX format: 5 fields)
@@ -402,12 +402,21 @@ def test_omit(mock_config):
 
 def test_fetch_open_interest(mock_config, mock_api, mock_open_interest):
     """Test fetching open interest."""
+    # Mock Subsquid response with 30-decimal values
+    # 50M = 50000000 * 1e30 = 5e37
+    # 45M = 45000000 * 1e30 = 4.5e37
+    mock_subsquid_data = [{
+        "id": "1",
+        "longOpenInterestUsd": str(int(50000000 * 1e30)),  # 50M with 30 decimals
+        "shortOpenInterestUsd": str(int(45000000 * 1e30)),  # 45M with 30 decimals
+    }]
+
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
-        with patch("eth_defi.gmx.ccxt.wrapper.GetOpenInterest") as mock_oi:
+        with patch("eth_defi.gmx.ccxt.wrapper.GMXSubsquidClient") as mock_subsquid:
             # Setup mock
-            mock_oi_instance = Mock()
-            mock_oi_instance.get_data.return_value = mock_open_interest
-            mock_oi.return_value = mock_oi_instance
+            mock_subsquid_instance = Mock()
+            mock_subsquid_instance.get_market_infos.return_value = mock_subsquid_data
+            mock_subsquid.return_value = mock_subsquid_instance
 
             wrapper = GMXCCXTWrapper(mock_config)
             wrapper.load_markets()
@@ -417,9 +426,10 @@ def test_fetch_open_interest(mock_config, mock_api, mock_open_interest):
 
             # Verify structure
             assert oi["symbol"] == "ETH/USD"
-            assert oi["openInterestValue"] == 95000000.0  # 50M + 45M
-            assert oi["longOpenInterest"] == 50000000.0
-            assert oi["shortOpenInterest"] == 45000000.0
+            # Use approximate comparison for floating point values
+            assert abs(oi["openInterestValue"] - 95000000.0) < 0.01  # 50M + 45M
+            assert abs(oi["longOpenInterest"] - 50000000.0) < 0.01
+            assert abs(oi["shortOpenInterest"] - 45000000.0) < 0.01
             assert "timestamp" in oi
             assert "datetime" in oi
             assert "info" in oi
@@ -444,12 +454,20 @@ def test_fetch_open_interest_history_skip(mock_config, mock_api):
 
 def test_fetch_funding_rate(mock_config, mock_api, mock_funding_rate):
     """Test fetching funding rate."""
+    # Mock Subsquid response with 30-decimal values
+    # 0.0001 = 0.0001 * 1e30 = 1e26
+    mock_subsquid_data = [{
+        "id": "1",
+        "fundingFactorPerSecond": str(int(0.0001 * 1e30)),  # 0.0001 per second (30 decimals)
+        "longsPayShorts": True,
+    }]
+
     with patch("eth_defi.gmx.ccxt.wrapper.GMXAPI", return_value=mock_api):
-        with patch("eth_defi.gmx.ccxt.wrapper.GetFundingFee") as mock_ff:
+        with patch("eth_defi.gmx.ccxt.wrapper.GMXSubsquidClient") as mock_subsquid:
             # Setup mock
-            mock_ff_instance = Mock()
-            mock_ff_instance.get_data.return_value = mock_funding_rate
-            mock_ff.return_value = mock_ff_instance
+            mock_subsquid_instance = Mock()
+            mock_subsquid_instance.get_market_infos.return_value = mock_subsquid_data
+            mock_subsquid.return_value = mock_subsquid_instance
 
             wrapper = GMXCCXTWrapper(mock_config)
             wrapper.load_markets()
@@ -459,9 +477,9 @@ def test_fetch_funding_rate(mock_config, mock_api, mock_funding_rate):
 
             # Verify structure
             assert fr["symbol"] == "ETH/USD"
-            assert fr["fundingRate"] == 0.0  # (0.0001 + -0.0001) / 2
-            assert fr["longFundingRate"] == 0.0001
-            assert fr["shortFundingRate"] == -0.0001
+            assert fr["fundingRate"] == 0.0001  # Per second rate
+            assert fr["longFundingRate"] == 0.0001  # Longs pay
+            assert fr["shortFundingRate"] == -0.0001  # Shorts receive
             assert "timestamp" in fr
             assert "datetime" in fr
             assert "fundingTimestamp" in fr

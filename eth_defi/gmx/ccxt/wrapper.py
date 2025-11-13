@@ -34,8 +34,6 @@ from datetime import datetime
 import time
 from eth_defi.gmx.config import GMXConfig
 from eth_defi.gmx.api import GMXAPI
-from eth_defi.gmx.core.open_interest import GetOpenInterest
-from eth_defi.gmx.core.funding_fee import GetFundingFee
 from eth_defi.gmx.graphql.client import GMXSubsquidClient
 
 
@@ -317,12 +315,11 @@ class GMXCCXTWrapper:
         Fetch current open interest for a symbol.
 
         This method returns the current open interest data for both long and short
-        positions on GMX protocol. Open interest represents the total value of all
-        outstanding positions.
+        positions on GMX protocol using the fast Subsquid GraphQL endpoint.
 
         :param symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
         :type symbol: str
-        :param params: Additional parameters (not used currently)
+        :param params: Additional parameters - can include "market_address" to query specific market
         :type params: Optional[Dict[str, Any]]
         :returns: Dictionary with open interest information::
 
@@ -336,7 +333,7 @@ class GMXCCXTWrapper:
                 'shortOpenInterest': 61456789.0,  # Short positions in USD
                 'timestamp': 1234567890000,
                 'datetime': '2021-01-01T00:00:00.000Z',
-                'info': {...}  # Raw GMX data
+                'info': {...}  # Raw Subsquid data
             }
 
         :rtype: Dict[str, Any]
@@ -351,8 +348,8 @@ class GMXCCXTWrapper:
             print(f"Short OI: ${oi['shortOpenInterest']:,.0f}")
 
         .. note::
-            GMX provides open interest in USD value only. The openInterestAmount
-            field (contracts) is not available and set to 0.
+            Data is fetched from Subsquid GraphQL endpoint for fast access.
+            GMX provides open interest in USD value only.
         """
         if params is None:
             params = {}
@@ -362,14 +359,23 @@ class GMXCCXTWrapper:
 
         # Get market info
         market_info = self.market(symbol)
-        gmx_symbol = market_info["base"]  # e.g., "ETH"
+        market_address = params.get("market_address", market_info["info"]["market_token"])
 
-        # Fetch open interest data from GMX
-        oi_data = GetOpenInterest(self.config).get_data()
+        # Fetch latest market info from Subsquid (fast)
+        market_infos = self.subsquid.get_market_infos(
+            market_address=market_address,
+            limit=1,
+            order_by="id_DESC"
+        )
 
-        # Extract long and short OI for this symbol
-        long_oi = oi_data.get("long", {}).get(gmx_symbol, 0)
-        short_oi = oi_data.get("short", {}).get(gmx_symbol, 0)
+        if not market_infos:
+            raise ValueError(f"No market info found for {symbol}")
+
+        info = market_infos[0]
+
+        # Parse 30-decimal USD values
+        long_oi = float(info.get("longOpenInterestUsd", 0)) / 1e30
+        short_oi = float(info.get("shortOpenInterestUsd", 0)) / 1e30
         total_oi = long_oi + short_oi
 
         timestamp = self.milliseconds()
@@ -384,12 +390,7 @@ class GMXCCXTWrapper:
             "shortOpenInterest": short_oi,  # GMX-specific field
             "timestamp": timestamp,
             "datetime": datetime.fromtimestamp(timestamp / 1000).isoformat() + "Z",
-            "info": {
-                "long": long_oi,
-                "short": short_oi,
-                "symbol": gmx_symbol,
-                "raw": oi_data,
-            },
+            "info": info,
         }
 
     def fetch_open_interest_history(
@@ -470,26 +471,25 @@ class GMXCCXTWrapper:
         """
         Fetch current funding rate for a symbol.
 
-        This method returns the current funding rate (APR) for both long and short
-        positions on GMX protocol. Funding rates represent the cost/reward of holding
-        leveraged positions.
+        This method returns the current funding rate for both long and short
+        positions on GMX protocol using the fast Subsquid GraphQL endpoint.
 
         :param symbol: Unified symbol (e.g., "ETH/USD", "BTC/USD")
         :type symbol: str
-        :param params: Additional parameters (not used currently)
+        :param params: Additional parameters - can include "market_address" to query specific market
         :type params: Optional[Dict[str, Any]]
         :returns: Dictionary with funding rate information::
 
             {
                 'symbol': 'ETH/USD',
-                'fundingRate': 0.0001,  # Weighted average (as decimal)
-                'longFundingRate': 0.00015,  # Long position rate
-                'shortFundingRate': -0.00005,  # Short position rate
+                'fundingRate': 0.0001,  # Per-second rate (as decimal)
+                'longFundingRate': 0.0001,  # Long position rate (per-second)
+                'shortFundingRate': -0.0001,  # Short position rate (per-second)
                 'fundingTimestamp': 1234567890000,
                 'fundingDatetime': '2021-01-01T00:00:00.000Z',
                 'timestamp': 1234567890000,
                 'datetime': '2021-01-01T00:00:00.000Z',
-                'info': {...}  # Raw GMX data
+                'info': {...}  # Raw Subsquid data
             }
 
         :rtype: Dict[str, Any]
@@ -499,15 +499,16 @@ class GMXCCXTWrapper:
 
             # Get current funding rate for BTC
             fr = exchange.fetch_funding_rate("BTC/USD")
-            print(f"Long funding: {fr['longFundingRate']:.6f}")
-            print(f"Short funding: {fr['shortFundingRate']:.6f}")
+            # Convert per-second to hourly
+            hourly_rate = fr['fundingRate'] * 3600
+            print(f"Hourly funding: {hourly_rate:.6f}")
 
             # Positive rate = longs pay shorts
             # Negative rate = shorts pay longs
 
         .. note::
-            GMX returns funding rates as hourly APR (factor per hour).
-            Positive values mean longs pay shorts, negative means shorts pay longs.
+            Data is fetched from Subsquid GraphQL endpoint for fast access.
+            Rates are per-second values. Multiply by 3600 for hourly rate.
         """
         if params is None:
             params = {}
@@ -517,35 +518,44 @@ class GMXCCXTWrapper:
 
         # Get market info
         market_info = self.market(symbol)
-        gmx_symbol = market_info["base"]  # e.g., "ETH"
+        market_address = params.get("market_address", market_info["info"]["market_token"])
 
-        # Fetch funding rate data from GMX
-        funding_data = GetFundingFee(self.config).get_data()
+        # Fetch latest market info from Subsquid (fast)
+        market_infos = self.subsquid.get_market_infos(
+            market_address=market_address,
+            limit=1,
+            order_by="id_DESC"
+        )
 
-        # Extract long and short funding rates for this symbol
-        long_funding = funding_data.get("long", {}).get(gmx_symbol, 0)
-        short_funding = funding_data.get("short", {}).get(gmx_symbol, 0)
+        if not market_infos:
+            raise ValueError(f"No market info found for {symbol}")
 
-        # Calculate weighted average (simple average for now)
-        avg_funding = (long_funding + short_funding) / 2
+        info = market_infos[0]
+
+        # Parse 30-decimal funding rate values
+        funding_per_second = float(info.get("fundingFactorPerSecond", 0)) / 1e30
+        longs_pay_shorts = info.get("longsPayShorts", True)
+
+        # Determine direction based on longsPayShorts flag
+        if longs_pay_shorts:
+            long_funding = funding_per_second
+            short_funding = -funding_per_second
+        else:
+            long_funding = -funding_per_second
+            short_funding = funding_per_second
 
         timestamp = self.milliseconds()
 
         return {
             "symbol": symbol,
-            "fundingRate": avg_funding,  # Average rate
+            "fundingRate": funding_per_second,  # Per-second rate
             "longFundingRate": long_funding,  # GMX-specific field
             "shortFundingRate": short_funding,  # GMX-specific field
             "fundingTimestamp": timestamp,
             "fundingDatetime": datetime.fromtimestamp(timestamp / 1000).isoformat() + "Z",
             "timestamp": timestamp,
             "datetime": datetime.fromtimestamp(timestamp / 1000).isoformat() + "Z",
-            "info": {
-                "long": long_funding,
-                "short": short_funding,
-                "symbol": gmx_symbol,
-                "raw": funding_data,
-            },
+            "info": info,
         }
 
     def fetch_funding_rate_history(

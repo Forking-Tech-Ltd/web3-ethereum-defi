@@ -1,11 +1,10 @@
-"""
-CCXT Compatibility Module for GMX
+"""CCXT Compatibility Module for GMX.
 
 This module provides CCXT-compatible interfaces for GMX protocol trading operations
 to minimize migration overhead for users coming from CCXT-based trading systems.
 
-Example usage:
-    ```python
+Example usage::
+
     from web3 import Web3
     from eth_defi.gmx.config import GMXConfig
     from eth_defi.gmx.ccxt import GMXCCXT
@@ -15,10 +14,9 @@ Example usage:
     config = GMXConfig(web3, user_wallet_address="0x...")
     exchange = GMXCCXT(config)
 
-    # Create orders using familiar CCXT methods
-    result = exchange.create_order("ETH/USD", "market", "buy", 0.1)
-    ```
-"""
+    # Fetch market data
+    ticker = exchange.fetch_ticker("ETH/USD")
+    """
 
 from eth_defi.gmx.ccxt.wrapper import GMXCCXT
 

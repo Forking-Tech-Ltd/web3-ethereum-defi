@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-GMX CCXT Phase 2 - Trading Operations Demo
+GMX CCXT Trading Examples
 
-Demonstrates all Phase 2 CCXT-compatible trading/account methods:
+Examples of CCXT-compatible trading/account methods:
 - fetch_balance() - Account token balances
 - fetch_open_orders() - Open positions as orders
 - fetch_my_trades() - User trade history
 
 Note: Trading methods (create_order, cancel_order) require private keys
-and are not included in this demo for security reasons.
+and are not included for security reasons.
 
 Usage:
     export WALLET_ADDRESS="0xYourAddress"
     export JSON_RPC_ARBITRUM="https://arb1.arbitrum.io/rpc"
-    python scripts/gmx/gmx_ccxt_phase2_demo.py
+    python scripts/gmx/gmx_ccxt_trading.py
 """
 
 import os
@@ -29,8 +29,8 @@ from eth_defi.gmx.ccxt import GMXCCXT
 console = Console()
 
 
-def demo_fetch_balance(gmx: GMXCCXT):
-    """Demo fetch_balance() - Account token balances"""
+def example_fetch_balance(gmx: GMXCCXT):
+    """Example:fetch_balance() - Account token balances"""
     console.print("\n[bold cyan]1. fetch_balance() - Account Token Balances[/bold cyan]")
     console.print("Fetching wallet balances...\n")
 
@@ -75,8 +75,8 @@ def demo_fetch_balance(gmx: GMXCCXT):
         console.print(f"[red]Error: {e}[/red]")
 
 
-def demo_fetch_open_orders(gmx: GMXCCXT):
-    """Demo fetch_open_orders() - Open positions as orders"""
+def example_fetch_open_orders(gmx: GMXCCXT):
+    """Example:fetch_open_orders() - Open positions as orders"""
     console.print("\n[bold cyan]2. fetch_open_orders() - Open Positions[/bold cyan]")
     console.print("Fetching open positions...\n")
 
@@ -111,7 +111,7 @@ def demo_fetch_open_orders(gmx: GMXCCXT):
         console.print(table)
         console.print(f"\n[dim]Total positions: {len(orders)}[/dim]")
 
-        # Demo filtering by symbol
+        # Example:filtering by symbol
         if len(orders) > 0:
             first_symbol = orders[0]['symbol']
             console.print(f"\n[bold]Filtering to {first_symbol}:[/bold]")
@@ -124,8 +124,8 @@ def demo_fetch_open_orders(gmx: GMXCCXT):
         console.print(f"[red]Error: {e}[/red]")
 
 
-def demo_fetch_my_trades(gmx: GMXCCXT):
-    """Demo fetch_my_trades() - User trade history"""
+def example_fetch_my_trades(gmx: GMXCCXT):
+    """Example:fetch_my_trades() - User trade history"""
     console.print("\n[bold cyan]3. fetch_my_trades() - User Trade History[/bold cyan]")
     console.print("Fetching trade history (last 7 days)...\n")
 
@@ -169,8 +169,8 @@ def demo_fetch_my_trades(gmx: GMXCCXT):
 
 def main():
     console.print(Panel.fit(
-        "[bold cyan]GMX CCXT Phase 2 - Trading Operations Demo[/bold cyan]\n"
-        "Demonstrating account and trading history methods\n"
+        "[bold cyan]GMX CCXT Trading Examples[/bold cyan]\n"
+        "Account and trading history methods\n"
         "[yellow]Note: Actual trading requires private keys (not shown here)[/yellow]",
         border_style="cyan"
     ))
@@ -199,16 +199,16 @@ def main():
         console.print(f"[dim]Chain ID: {web3.eth.chain_id}[/dim]")
         console.print("[green]✓ Connected successfully[/green]")
 
-        # Run all demos
-        demo_fetch_balance(gmx)
-        demo_fetch_open_orders(gmx)
-        demo_fetch_my_trades(gmx)
+        # Run all examples
+        example_fetch_balance(gmx)
+        example_fetch_open_orders(gmx)
+        example_fetch_my_trades(gmx)
 
         console.print("\n" + "=" * 60)
-        console.print("[bold green]✓ All Phase 2 methods demonstrated successfully![/bold green]")
+        console.print("[bold green]✓ All trading methods executed successfully![/bold green]")
         console.print("=" * 60)
         console.print("\n[yellow]Note: Trading methods (create_order, cancel_order) require")
-        console.print("private keys and are not shown in this demo for security.[/yellow]")
+        console.print("private keys and are not shown for security.[/yellow]")
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Error: {e}[/bold red]")

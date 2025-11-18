@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-GMX CCXT Phase 3 - Position Management Demo
+GMX CCXT Position Management Examples
 
-Demonstrates all Phase 3 CCXT-compatible position management methods:
+Examples of CCXT-compatible position management methods:
 - fetch_positions() - Detailed position information with metrics
 - set_leverage() - Configure leverage settings
 - fetch_leverage() - Query leverage configuration
 
 Note: add_margin() and reduce_margin() require smart contract integration
-and are not included in this demo.
+and are not included.
 
 Usage:
     export WALLET_ADDRESS="0xYourAddress"
     export JSON_RPC_ARBITRUM="https://arb1.arbitrum.io/rpc"
-    python scripts/gmx/gmx_ccxt_phase3_demo.py
+    python scripts/gmx/gmx_ccxt_positions.py
 """
 
 import os
@@ -28,8 +28,8 @@ from eth_defi.gmx.ccxt import GMXCCXT
 console = Console()
 
 
-def demo_fetch_positions(gmx: GMXCCXT):
-    """Demo fetch_positions() - Detailed position information"""
+def example_fetch_positions(gmx: GMXCCXT):
+    """Example:fetch_positions() - Detailed position information"""
     console.print("\n[bold cyan]1. fetch_positions() - Detailed Position Information[/bold cyan]")
     console.print("Fetching open positions with full metrics...\n")
 
@@ -76,7 +76,7 @@ def demo_fetch_positions(gmx: GMXCCXT):
         console.print(table)
         console.print(f"\n[dim]Total positions: {len(positions)}[/dim]")
 
-        # Demo filtering by symbols
+        # Example:filtering by symbols
         if len(positions) > 0:
             first_symbol = positions[0]['symbol']
             console.print(f"\n[bold]Filtering to {first_symbol}:[/bold]")
@@ -106,8 +106,8 @@ def demo_fetch_positions(gmx: GMXCCXT):
         console.print(f"[red]Error: {e}[/red]")
 
 
-def demo_set_leverage(gmx: GMXCCXT):
-    """Demo set_leverage() - Configure leverage settings"""
+def example_set_leverage(gmx: GMXCCXT):
+    """Example:set_leverage() - Configure leverage settings"""
     console.print("\n[bold cyan]2. set_leverage() - Configure Leverage Settings[/bold cyan]")
     console.print("Setting leverage for trading...\n")
 
@@ -135,8 +135,8 @@ def demo_set_leverage(gmx: GMXCCXT):
         console.print(f"[red]Error: {e}[/red]")
 
 
-def demo_fetch_leverage(gmx: GMXCCXT):
-    """Demo fetch_leverage() - Query leverage configuration"""
+def example_fetch_leverage(gmx: GMXCCXT):
+    """Example:fetch_leverage() - Query leverage configuration"""
     console.print("\n[bold cyan]3. fetch_leverage() - Query Leverage Configuration[/bold cyan]")
     console.print("Fetching current leverage settings...\n")
 
@@ -171,8 +171,8 @@ def demo_fetch_leverage(gmx: GMXCCXT):
         console.print(f"[red]Error: {e}[/red]")
 
 
-def demo_margin_methods():
-    """Demo margin methods (not implemented)"""
+def example_margin_methods():
+    """Example:margin methods (not implemented)"""
     console.print("\n[bold cyan]4. Margin Methods - Not Yet Implemented[/bold cyan]")
     console.print("add_margin() and reduce_margin() require GMX contract integration...\n")
 
@@ -184,8 +184,8 @@ def demo_margin_methods():
 
 def main():
     console.print(Panel.fit(
-        "[bold cyan]GMX CCXT Phase 3 - Position Management Demo[/bold cyan]\n"
-        "Demonstrating position management and leverage methods\n"
+        "[bold cyan]GMX CCXT Position Management Examples[/bold cyan]\n"
+        "Position management and leverage methods\n"
         "[yellow]Note: Margin methods require smart contract integration[/yellow]",
         border_style="cyan"
     ))
@@ -214,14 +214,14 @@ def main():
         console.print(f"[dim]Chain ID: {web3.eth.chain_id}[/dim]")
         console.print("[green]✓ Connected successfully[/green]")
 
-        # Run all demos
-        demo_fetch_positions(gmx)
-        demo_set_leverage(gmx)
-        demo_fetch_leverage(gmx)
-        demo_margin_methods()
+        # Run all examples
+        example_fetch_positions(gmx)
+        example_set_leverage(gmx)
+        example_fetch_leverage(gmx)
+        example_margin_methods()
 
         console.print("\n" + "=" * 60)
-        console.print("[bold green]✓ All Phase 3 methods demonstrated successfully![/bold green]")
+        console.print("[bold green]✓ All position management methods executed successfully![/bold green]")
         console.print("=" * 60)
 
     except Exception as e:

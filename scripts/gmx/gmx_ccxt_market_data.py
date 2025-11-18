@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-GMX CCXT Phase 1 - Market Data Demo
+GMX CCXT Market Data Examples
 
-Demonstrates all Phase 1 CCXT-compatible market data methods:
+Examples of CCXT-compatible market data methods:
 - fetch_ticker() - Single market ticker
 - fetch_tickers() - Multiple market tickers
 - fetch_currencies() - Token metadata
@@ -11,7 +11,7 @@ Demonstrates all Phase 1 CCXT-compatible market data methods:
 - fetch_status() - API health status
 
 Usage:
-    python scripts/gmx/gmx_ccxt_phase1_demo.py
+    python scripts/gmx/gmx_ccxt_market_data.py
 """
 
 import os
@@ -27,8 +27,8 @@ from eth_defi.gmx.ccxt import GMXCCXT
 console = Console()
 
 
-def demo_fetch_ticker(gmx: GMXCCXT):
-    """Demo fetch_ticker() - Single market ticker"""
+def example_fetch_ticker(gmx: GMXCCXT):
+    """Example: fetch_ticker() - Single market ticker"""
     console.print("\n[bold cyan]1. fetch_ticker() - Single Market Ticker[/bold cyan]")
     console.print("Fetching ticker for ETH/USD...\n")
 
@@ -48,8 +48,8 @@ def demo_fetch_ticker(gmx: GMXCCXT):
     console.print(table)
 
 
-def demo_fetch_tickers(gmx: GMXCCXT):
-    """Demo fetch_tickers() - Multiple market tickers"""
+def example_fetch_tickers(gmx: GMXCCXT):
+    """Example:fetch_tickers() - Multiple market tickers"""
     console.print("\n[bold cyan]2. fetch_tickers() - Multiple Market Tickers[/bold cyan]")
     console.print("Fetching tickers for all markets...\n")
 
@@ -72,15 +72,15 @@ def demo_fetch_tickers(gmx: GMXCCXT):
     console.print(table)
     console.print(f"\n[dim]Total markets: {len(tickers)}[/dim]")
 
-    # Demo filtering by symbols
+    # Example:filtering by symbols
     console.print("\n[bold]Filtering to specific symbols (ETH/USD, BTC/USD):[/bold]")
     filtered = gmx.fetch_tickers(["ETH/USD", "BTC/USD"])
     for symbol, ticker in filtered.items():
         console.print(f"  {symbol}: ${ticker['last']:,.2f}")
 
 
-def demo_fetch_currencies(gmx: GMXCCXT):
-    """Demo fetch_currencies() - Token metadata"""
+def example_fetch_currencies(gmx: GMXCCXT):
+    """Example:fetch_currencies() - Token metadata"""
     console.print("\n[bold cyan]3. fetch_currencies() - Token Metadata[/bold cyan]")
     console.print("Fetching currency metadata...\n")
 
@@ -104,8 +104,8 @@ def demo_fetch_currencies(gmx: GMXCCXT):
     console.print(f"\n[dim]Total currencies: {len(currencies)}[/dim]")
 
 
-def demo_fetch_trades(gmx: GMXCCXT):
-    """Demo fetch_trades() - Recent public trades"""
+def example_fetch_trades(gmx: GMXCCXT):
+    """Example:fetch_trades() - Recent public trades"""
     console.print("\n[bold cyan]4. fetch_trades() - Recent Public Trades[/bold cyan]")
     console.print("Fetching recent trades for ETH/USD (last 24 hours)...\n")
 
@@ -138,8 +138,8 @@ def demo_fetch_trades(gmx: GMXCCXT):
         console.print("[yellow]No trades found in the last 24 hours[/yellow]")
 
 
-def demo_fetch_time(gmx: GMXCCXT):
-    """Demo fetch_time() - Server/blockchain time"""
+def example_fetch_time(gmx: GMXCCXT):
+    """Example:fetch_time() - Server/blockchain time"""
     console.print("\n[bold cyan]5. fetch_time() - Server/Blockchain Time[/bold cyan]")
     console.print("Fetching blockchain time...\n")
 
@@ -162,8 +162,8 @@ def demo_fetch_time(gmx: GMXCCXT):
     console.print(table)
 
 
-def demo_fetch_status(gmx: GMXCCXT):
-    """Demo fetch_status() - API health status"""
+def example_fetch_status(gmx: GMXCCXT):
+    """Example:fetch_status() - API health status"""
     console.print("\n[bold cyan]6. fetch_status() - API Health Status[/bold cyan]")
     console.print("Checking API status...\n")
 
@@ -191,8 +191,8 @@ def demo_fetch_status(gmx: GMXCCXT):
 
 def main():
     console.print(Panel.fit(
-        "[bold cyan]GMX CCXT Phase 1 - Market Data Demo[/bold cyan]\n"
-        "Demonstrating all CCXT-compatible market data methods",
+        "[bold cyan]GMX CCXT Market Data Examples[/bold cyan]\n"
+        "CCXT-compatible market data methods",
         border_style="cyan"
     ))
 
@@ -211,16 +211,16 @@ def main():
     console.print("[green]✓ Connected successfully[/green]")
 
     try:
-        # Run all demos
-        demo_fetch_ticker(gmx)
-        demo_fetch_tickers(gmx)
-        demo_fetch_currencies(gmx)
-        demo_fetch_trades(gmx)
-        demo_fetch_time(gmx)
-        demo_fetch_status(gmx)
+        # Run all examples
+        example_fetch_ticker(gmx)
+        example_fetch_tickers(gmx)
+        example_fetch_currencies(gmx)
+        example_fetch_trades(gmx)
+        example_fetch_time(gmx)
+        example_fetch_status(gmx)
 
         console.print("\n" + "=" * 60)
-        console.print("[bold green]✓ All Phase 1 methods demonstrated successfully![/bold green]")
+        console.print("[bold green]✓ All market data methods executed successfully![/bold green]")
         console.print("=" * 60)
 
     except Exception as e:

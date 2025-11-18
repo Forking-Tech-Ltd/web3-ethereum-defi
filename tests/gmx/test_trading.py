@@ -114,7 +114,12 @@ def test_open_short_position(
 ):
     """
     Test opening a short ETH position with full execution.
-    Uses ETH price of 3550 USD.
+    Uses ETH price of 3892 USD (actual market price at fork block 392496384).
+
+    Short positions use USDC collateral (best practice):
+    - When shorting ETH, you bet the price goes DOWN
+    - Using USDC (stablecoin) protects your collateral from ETH price movements
+    - This follows GMX recommended practices for short positions
 
     Flow:
     1. Create order (ETH market, USDC collateral, 2.5x leverage)
@@ -135,10 +140,12 @@ def test_open_short_position(
     initial_position_count = len(initial_positions)
 
     # === Step 1: Create order ===
+    # Short positions typically use USDC collateral (stablecoin) rather than ETH
+    # This follows GMX best practices: when shorting ETH, use stable collateral
     order_result = trading_manager_fork.open_position(
         market_symbol="ETH",
-        collateral_symbol="ETH",
-        start_token_symbol="ETH",
+        collateral_symbol="USDC",  # Use USDC for short positions (not ETH)
+        start_token_symbol="USDC",  # Fund with USDC
         is_long=False,
         size_delta_usd=10,
         leverage=2.5,
@@ -187,7 +194,7 @@ def test_open_and_close_position(
 ):
     """
     Test full position lifecycle: open then close.
-    Uses fresh oracle setup with ETH price of 3450 USD.
+    Uses fresh oracle setup with ETH price of 3892 USD (actual market price at fork block 392496384).
 
     Flow:
     1. Open position (long ETH)
@@ -247,11 +254,12 @@ def test_open_and_close_position(
     # Update mock oracle price before closing to simulate price movement
     # For long positions: price goes UP (+1000) to create profit
     # For short positions: price goes DOWN (-1000) to create profit
-    MOCK_ETH_PRICE = 3450
+    # Note: Base price is 3892 (actual market price at fork block 392496384)
+    MOCK_ETH_PRICE_BASE = 3892
     MOCK_USDC_PRICE = 1
     setup_mock_oracle(
         web3_arbitrum_fork,
-        eth_price_usd=MOCK_ETH_PRICE + 1000,
+        eth_price_usd=MOCK_ETH_PRICE_BASE + 1000,  # $4892 to create profit on long
         usdc_price_usd=MOCK_USDC_PRICE,
     )
 

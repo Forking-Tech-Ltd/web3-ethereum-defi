@@ -40,10 +40,38 @@ class GMXCCXT:
     CCXT conventions. This allows traders to use GMX with minimal changes to
     existing CCXT-based trading systems.
 
+    **Market Data Methods:**
+
+    - ``load_markets()`` / ``fetch_markets()`` - Get all available markets
+    - ``fetch_ticker(symbol)`` - Get current price and 24h stats for one market
+    - ``fetch_tickers(symbols)`` - Get ticker data for multiple markets
+    - ``fetch_ohlcv(symbol, timeframe)`` - Get candlestick/OHLCV data
+    - ``fetch_trades(symbol, since, limit)`` - Get recent public trades
+    - ``fetch_currencies()`` - Get token metadata (decimals, addresses)
+    - ``fetch_time()`` - Get blockchain time
+    - ``fetch_status()`` - Check API operational status
+
+    **Open Interest & Funding:**
+
+    - ``fetch_open_interest(symbol)`` - Current open interest
+    - ``fetch_open_interest_history(symbol, timeframe, since, limit)`` - Historical OI
+    - ``fetch_open_interests(symbols)`` - Batch OI fetch
+    - ``fetch_funding_rate(symbol)`` - Current funding rate
+    - ``fetch_funding_rate_history(symbol, since, limit)`` - Historical funding
+
+    **GMX Limitations:**
+
+    - No ``fetch_order_book()`` - GMX uses liquidity pools, not order books
+    - Volume data not available in OHLCV
+    - 24h high/low calculated from recent OHLCV data
+    - Trades derived from position change events
+
     :ivar config: GMX configuration object
     :vartype config: GMXConfig
     :ivar api: GMX API client for market data
     :vartype api: GMXAPI
+    :ivar web3: Web3 instance for blockchain queries
+    :vartype web3: Web3
     :ivar subsquid: Subsquid GraphQL client for historical data
     :vartype subsquid: GMXSubsquidClient
     :ivar markets: Dictionary of available markets (populated by load_markets)
@@ -69,6 +97,7 @@ class GMXCCXT:
         """
         self.config = config
         self.api = GMXAPI(config)
+        self.web3 = config.web3  # Store web3 instance for fetch_time
 
         # Initialize Subsquid client with chain from config
         chain = config.get_chain()
@@ -369,6 +398,77 @@ class GMXCCXT:
                 parsed = parsed[:limit]
 
         return parsed
+
+    def parse_ticker(self, ticker: dict, market: dict = None) -> dict:
+        """
+        Parse GMX ticker data to CCXT format.
+
+        :param ticker: Raw ticker data from GMX API
+        :param market: Market structure from load_markets()
+        :return: CCXT-formatted ticker::
+
+            {
+                "symbol": "ETH/USD",
+                "timestamp": 1234567890000,
+                "datetime": "2021-01-01T00:00:00.000Z",
+                "high": None,          # Calculated separately from OHLCV
+                "low": None,           # Calculated separately from OHLCV
+                "bid": None,           # GMX doesn't have order books
+                "bidVolume": None,
+                "ask": None,
+                "askVolume": None,
+                "vwap": None,
+                "open": None,          # Calculated separately from OHLCV
+                "close": 3350.0,       # Current price
+                "last": 3350.0,        # Current price
+                "previousClose": None,
+                "change": None,
+                "percentage": None,
+                "average": None,
+                "baseVolume": None,    # GMX doesn't provide volume
+                "quoteVolume": None,
+                "info": {...}          # Raw GMX ticker data
+            }
+        """
+        # Get current timestamp
+        timestamp = self.milliseconds()
+
+        # Extract price from ticker
+        # GMX API ticker structure: {"maxPrice": "3350000000...", "minPrice": "3340000000..."}
+        # Prices are in 30-decimal format
+        max_price = self.safe_string(ticker, "maxPrice")
+        min_price = self.safe_string(ticker, "minPrice")
+
+        # Convert from 30-decimal to float
+        last_price = None
+        if max_price and min_price:
+            max_price_float = float(max_price) / (10**30)
+            min_price_float = float(min_price) / (10**30)
+            # Use midpoint as last price
+            last_price = (max_price_float + min_price_float) / 2
+
+        return {
+            "symbol": self.safe_string(market, "symbol"),
+            "timestamp": timestamp,
+            "datetime": self.iso8601(timestamp),
+            "high": None,  # Will calculate from OHLCV in fetch_ticker
+            "low": None,   # Will calculate from OHLCV in fetch_ticker
+            "bid": None,   # GMX doesn't have order books
+            "bidVolume": None,
+            "ask": None,
+            "askVolume": None,
+            "vwap": None,
+            "open": None,  # Will calculate from OHLCV in fetch_ticker
+            "close": last_price,
+            "last": last_price,
+            "previousClose": None,
+            "change": None,
+            "percentage": None,
+            "average": None,
+            "baseVolume": None,  # GMX doesn't track volume
+            "quoteVolume": None,
+            "info": ticker,
+        }
 
     def fetch_open_interest(
         self,
@@ -860,6 +960,426 @@ class GMXCCXT:
             )
 
         return result
+
+    def fetch_ticker(self, symbol: str, params: dict = None) -> dict:
+        """
+        Fetch ticker data for a single market.
+
+        Gets current price and 24h statistics for the specified market.
+        Note: GMX doesn't provide 24h high/low, so these are calculated from recent OHLCV.
+
+        :param symbol: CCXT symbol (e.g., "ETH/USD")
+        :param params: Optional parameters (not used currently)
+        :return: CCXT-formatted ticker (see parse_ticker for structure)
+
+        Example::
+
+            ticker = gmx.fetch_ticker("ETH/USD")
+            print(f"Current price: ${ticker['last']}")
+            print(f"24h high: ${ticker['high']}")
+        """
+        params = params or {}
+        self.load_markets()
+
+        # Get market info
+        market = self.market(symbol)
+
+        # Get index token address for this market
+        index_token_address = market["info"]["index_token"]
+
+        # Fetch ticker from GMX API
+        all_tickers = self.api.get_tickers()
+
+        # Find ticker for this token
+        ticker = None
+        for t in all_tickers:
+            if t.get("tokenAddress", "").lower() == index_token_address.lower():
+                ticker = t
+                break
+
+        if not ticker:
+            raise ValueError(f"No ticker data found for {symbol}")
+
+        # Parse to CCXT format
+        result = self.parse_ticker(ticker, market)
+
+        # Calculate 24h high/low from recent OHLCV (last 24 hours of 1h candles)
+        try:
+            since = self.milliseconds() - (24 * 60 * 60 * 1000)  # 24 hours ago
+            ohlcv = self.fetch_ohlcv(symbol, "1h", since=since, limit=24)
+
+            if ohlcv:
+                # Extract highs and lows
+                highs = [candle[2] for candle in ohlcv]  # Index 2 is high
+                lows = [candle[3] for candle in ohlcv]   # Index 3 is low
+
+                result["high"] = max(highs) if highs else None
+                result["low"] = min(lows) if lows else None
+
+                # Also get open from first candle
+                result["open"] = ohlcv[0][1] if ohlcv else None  # Index 1 is open
+        except Exception:
+            # If OHLCV fetch fails, leave high/low as None
+            pass
+
+        return result
+
+    def fetch_tickers(self, symbols: list[str] = None, params: dict = None) -> dict:
+        """
+        Fetch ticker data for multiple markets at once.
+
+        :param symbols: List of CCXT symbols to fetch. If None, fetches all markets.
+        :param params: Optional parameters (not used currently)
+        :return: Dict mapping symbols to ticker data::
+
+            {
+                "ETH/USD": {...},
+                "BTC/USD": {...},
+                ...
+            }
+
+        Example::
+
+            # Fetch all tickers
+            tickers = gmx.fetch_tickers()
+
+            # Fetch specific symbols
+            tickers = gmx.fetch_tickers(["ETH/USD", "BTC/USD"])
+        """
+        params = params or {}
+        self.load_markets()
+
+        # Fetch all tickers from GMX API once
+        all_tickers = self.api.get_tickers()
+
+        # Build mapping of token address to ticker data
+        ticker_by_address = {}
+        for ticker in all_tickers:
+            address = ticker.get("tokenAddress", "").lower()
+            if address:
+                ticker_by_address[address] = ticker
+
+        # If symbols specified, filter to those; otherwise use all markets
+        if symbols is not None:
+            target_symbols = symbols
+        else:
+            target_symbols = list(self.markets.keys())
+
+        # Parse ticker for each requested symbol
+        result = {}
+        for symbol in target_symbols:
+            try:
+                market = self.market(symbol)
+                index_token_address = market["info"]["index_token"].lower()
+
+                if index_token_address in ticker_by_address:
+                    ticker_data = ticker_by_address[index_token_address]
+                    result[symbol] = self.parse_ticker(ticker_data, market)
+
+                    # Calculate 24h high/low from OHLCV (same as fetch_ticker)
+                    try:
+                        since = self.milliseconds() - (24 * 60 * 60 * 1000)
+                        ohlcv = self.fetch_ohlcv(symbol, "1h", since=since, limit=24)
+
+                        if ohlcv:
+                            highs = [candle[2] for candle in ohlcv]
+                            lows = [candle[3] for candle in ohlcv]
+
+                            result[symbol]["high"] = max(highs) if highs else None
+                            result[symbol]["low"] = min(lows) if lows else None
+                            result[symbol]["open"] = ohlcv[0][1] if ohlcv else None
+                    except Exception:
+                        pass
+            except Exception:
+                # Skip symbols we can't fetch
+                pass
+
+        return result
+
+    def fetch_currencies(self, params: dict = None) -> dict:
+        """
+        Fetch currency/token metadata.
+
+        Returns information about all tradeable tokens including decimals,
+        addresses, and symbols.
+
+        :param params: Optional parameters (not used currently)
+        :return: Dict mapping currency codes to metadata::
+
+            {
+                "ETH": {
+                    "id": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+                    "code": "ETH",
+                    "name": "Ethereum",
+                    "active": True,
+                    "fee": None,
+                    "precision": 18,
+                    "limits": {
+                        "amount": {"min": None, "max": None},
+                        "withdraw": {"min": None, "max": None}
+                    },
+                    "info": {...}
+                },
+                ...
+            }
+
+        Example::
+
+            currencies = gmx.fetch_currencies()
+            eth_decimals = currencies['ETH']['precision']
+        """
+        params = params or {}
+
+        # Fetch token data from GMX API
+        tokens = self.api.get_tokens()
+
+        result = {}
+        for token in tokens:
+            # Extract token info
+            address = token.get("tokenAddress", "")
+            symbol = token.get("tokenSymbol", "")
+            name = token.get("tokenName", symbol)
+            decimals = token.get("decimals", 18)
+
+            if symbol and address:
+                result[symbol] = {
+                    "id": address,
+                    "code": symbol,
+                    "name": name,
+                    "active": True,  # Assume all GMX tokens are active
+                    "fee": None,
+                    "precision": decimals,
+                    "limits": {
+                        "amount": {"min": None, "max": None},
+                        "withdraw": {"min": None, "max": None}
+                    },
+                    "info": token
+                }
+
+        return result
+
+    def parse_trade(self, trade: dict, market: dict = None) -> dict:
+        """
+        Parse trade data to CCXT format.
+
+        GMX doesn't have traditional public trades, so we derive this from
+        position change events (opens and closes).
+
+        :param trade: Position change event from Subsquid
+        :param market: Market structure
+        :return: CCXT-formatted trade::
+
+            {
+                "id": "0x123...",
+                "order": None,
+                "timestamp": 1234567890000,
+                "datetime": "2021-01-01T00:00:00.000Z",
+                "symbol": "ETH/USD",
+                "type": None,
+                "side": "buy",  # or "sell"
+                "takerOrMaker": None,
+                "price": 3350.0,
+                "amount": 10.5,
+                "cost": 35175.0,
+                "fee": {...},
+                "info": {...}
+            }
+        """
+        # Get timestamp from trade event
+        timestamp = self.safe_integer(trade, "timestamp")
+        if timestamp:
+            timestamp = timestamp * 1000  # Convert to milliseconds if needed
+        else:
+            timestamp = self.milliseconds()
+
+        # Determine side from position change
+        # "PositionIncrease" = buy, "PositionDecrease" = sell
+        action = self.safe_string(trade, "action")
+        side = "buy" if "Increase" in action else "sell"
+
+        # Get price and amount
+        price = self.safe_number(trade, "executionPrice")
+        size_delta = self.safe_number(trade, "sizeDeltaUsd")
+
+        # Calculate amount in base currency
+        amount = None
+        cost = None
+        if price and size_delta:
+            cost = abs(size_delta)
+            amount = cost / price if price > 0 else None
+
+        # Parse fee if available
+        fee = None
+        fee_amount = self.safe_number(trade, "feeUsd")
+        if fee_amount:
+            fee = {
+                "cost": abs(fee_amount),
+                "currency": "USD"
+            }
+
+        return {
+            "id": self.safe_string(trade, "id"),
+            "order": None,
+            "timestamp": timestamp,
+            "datetime": self.iso8601(timestamp),
+            "symbol": self.safe_string(market, "symbol"),
+            "type": None,
+            "side": side,
+            "takerOrMaker": None,
+            "price": price,
+            "amount": amount,
+            "cost": cost,
+            "fee": fee,
+            "info": trade
+        }
+
+    def fetch_trades(self, symbol: str, since: int = None, limit: int = None, params: dict = None) -> list[dict]:
+        """
+        Fetch recent public trades for a market.
+
+        Note: GMX doesn't have traditional public trades. This method derives
+        trade data from position change events via Subsquid GraphQL.
+
+        :param symbol: CCXT symbol (e.g., "ETH/USD")
+        :param since: Timestamp in milliseconds to fetch trades from
+        :param limit: Maximum number of trades to return
+        :param params: Optional parameters (not used currently)
+        :return: List of CCXT-formatted trades
+
+        Example::
+
+            # Get last 50 trades
+            trades = gmx.fetch_trades("ETH/USD", limit=50)
+
+            # Get trades since yesterday
+            since = int((datetime.now() - timedelta(days=1)).timestamp() * 1000)
+            trades = gmx.fetch_trades("ETH/USD", since=since)
+        """
+        params = params or {}
+        self.load_markets()
+
+        # Get market info
+        market = self.market(symbol)
+        market_address = market["info"]["market_token"]
+
+        # Fetch position changes from Subsquid
+        # Convert since from milliseconds to seconds if provided
+        since_seconds = int(since / 1000) if since else None
+
+        position_changes = self.subsquid.get_position_changes(
+            market_address=market_address,
+            from_timestamp=since_seconds,
+            limit=limit or 100
+        )
+
+        # Parse each position change as a trade
+        trades = []
+        for change in position_changes:
+            try:
+                trade = self.parse_trade(change, market)
+                trades.append(trade)
+            except Exception:
+                # Skip trades we can't parse
+                pass
+
+        # Sort by timestamp descending (most recent first)
+        trades.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        # Apply limit if specified
+        if limit:
+            trades = trades[:limit]
+
+        return trades
+
+    def fetch_time(self, params: dict = None) -> int:
+        """
+        Fetch current server time.
+
+        For GMX (blockchain-based), this returns the timestamp of the latest
+        Arbitrum block.
+
+        :param params: Optional parameters (not used currently)
+        :return: Current timestamp in milliseconds
+
+        Example::
+
+            server_time = gmx.fetch_time()
+            print(f"Server time: {server_time}")
+        """
+        params = params or {}
+
+        # Get latest block timestamp from Arbitrum
+        latest_block = self.web3.eth.get_block('latest')
+        timestamp_seconds = latest_block['timestamp']
+
+        # Convert to milliseconds
+        return timestamp_seconds * 1000
+
+    def fetch_status(self, params: dict = None) -> dict:
+        """
+        Fetch API operational status.
+
+        Checks if GMX API and Subsquid endpoints are responding.
+
+        :param params: Optional parameters (not used currently)
+        :return: Status information::
+
+            {
+                "status": "ok",  # or "maintenance"
+                "updated": 1234567890000,
+                "datetime": "2021-01-01T00:00:00.000Z",
+                "eta": None,
+                "url": None,
+                "info": {...}
+            }
+
+        Example::
+
+            status = gmx.fetch_status()
+            if status['status'] == 'ok':
+                print("API is operational")
+        """
+        params = params or {}
+
+        timestamp = self.milliseconds()
+        status_result = "ok"
+        info = {}
+
+        try:
+            # Test GMX API by fetching tickers
+            tickers = self.api.get_tickers()
+            info["gmx_api"] = "ok"
+            info["gmx_api_markets"] = len(tickers)
+        except Exception as e:
+            status_result = "maintenance"
+            info["gmx_api"] = f"error: {str(e)}"
+
+        try:
+            # Test Subsquid by fetching markets
+            markets = self.subsquid.get_markets()
+            info["subsquid"] = "ok"
+            info["subsquid_markets"] = len(markets)
+        except Exception as e:
+            status_result = "maintenance"
+            info["subsquid"] = f"error: {str(e)}"
+
+        try:
+            # Test web3 connection
+            latest_block = self.web3.eth.block_number
+            info["web3"] = "ok"
+            info["web3_block_number"] = latest_block
+        except Exception as e:
+            status_result = "maintenance"
+            info["web3"] = f"error: {str(e)}"
+
+        return {
+            "status": status_result,
+            "updated": timestamp,
+            "datetime": self.iso8601(timestamp),
+            "eta": None,
+            "url": None,
+            "info": info
+        }
 
     def parse_ohlcv(
         self,

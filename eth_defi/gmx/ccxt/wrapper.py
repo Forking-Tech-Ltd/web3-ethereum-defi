@@ -59,12 +59,20 @@ class GMXCCXT:
     - ``fetch_funding_rate(symbol)`` - Current funding rate
     - ``fetch_funding_rate_history(symbol, since, limit)`` - Historical funding
 
+    **Trading Methods (Phase 2):**
+
+    - ``fetch_balance()`` - Get account token balances
+    - ``fetch_open_orders(symbol)`` - List open positions as orders
+    - ``fetch_my_trades(symbol, since, limit)`` - User trade history
+
     **GMX Limitations:**
 
     - No ``fetch_order_book()`` - GMX uses liquidity pools, not order books
+    - No ``create_order()`` / ``cancel_order()`` - Requires private key, not included yet
     - Volume data not available in OHLCV
     - 24h high/low calculated from recent OHLCV data
     - Trades derived from position change events
+    - Balance "used" amount not calculated (shown as 0.0)
 
     :ivar config: GMX configuration object
     :vartype config: GMXConfig
@@ -1380,6 +1388,333 @@ class GMXCCXT:
             "url": None,
             "info": info
         }
+
+    def fetch_balance(self, params: dict = None) -> dict:
+        """
+        Fetch account token balances.
+
+        Returns wallet balances for all supported tokens.
+        Requires user_wallet_address to be set in GMXConfig.
+
+        :param params: Optional parameters
+            - wallet_address: Override default wallet address from config
+        :return: CCXT-formatted balance::
+
+            {
+                "ETH": {
+                    "free": 1.5,      # Available balance
+                    "used": 0.0,      # Locked in positions (not implemented yet)
+                    "total": 1.5      # Total balance
+                },
+                "USDC": {...},
+                "free": {...},        # Summary of all free balances
+                "used": {...},        # Summary of all used balances
+                "total": {...},       # Summary of all total balances
+                "info": {...}         # Raw balance data
+            }
+
+        Example::
+
+            # Initialize with wallet address
+            config = GMXConfig(web3, user_wallet_address="0x...")
+            gmx = GMXCCXT(config)
+            balance = gmx.fetch_balance()
+            eth_balance = balance['ETH']['free']
+        """
+        params = params or {}
+
+        # Get wallet address from params or config
+        wallet = params.get('wallet_address', self.config.user_wallet_address)
+        if not wallet:
+            raise ValueError("wallet_address must be provided in GMXConfig or params")
+
+        # Convert to checksum address
+        wallet = self.web3.to_checksum_address(wallet)
+
+        # Fetch currency metadata
+        currencies = self.fetch_currencies()
+
+        # Build balance dict
+        result = {
+            'free': {},
+            'used': {},
+            'total': {},
+            'info': {}
+        }
+
+        # Standard ERC20 balanceOf ABI
+        balance_of_abi = [{
+            "constant": True,
+            "inputs": [{"name": "_owner", "type": "address"}],
+            "name": "balanceOf",
+            "outputs": [{"name": "balance", "type": "uint256"}],
+            "type": "function"
+        }]
+
+        # Query balance for each token
+        for code, currency in currencies.items():
+            token_address = currency['id']
+            decimals = currency['precision']
+
+            try:
+                # Create token contract
+                token_contract = self.web3.eth.contract(
+                    address=self.web3.to_checksum_address(token_address),
+                    abi=balance_of_abi
+                )
+
+                # Get balance
+                balance_raw = token_contract.functions.balanceOf(wallet).call()
+                balance_float = float(balance_raw) / (10 ** decimals)
+
+                # For now, all balance is "free" (not locked)
+                # TODO: Calculate "used" from open positions
+                result[code] = {
+                    'free': balance_float,
+                    'used': 0.0,
+                    'total': balance_float
+                }
+
+                result['free'][code] = balance_float
+                result['used'][code] = 0.0
+                result['total'][code] = balance_float
+
+                result['info'][code] = {
+                    'address': token_address,
+                    'raw_balance': str(balance_raw),
+                    'decimals': decimals
+                }
+
+            except Exception as e:
+                # Skip tokens we can't query
+                result['info'][code] = {'error': str(e)}
+
+        return result
+
+    def parse_order(self, order: dict, market: dict = None) -> dict:
+        """
+        Parse order/position data to CCXT format.
+
+        :param order: Order/position data from GMX
+        :param market: Market structure
+        :return: CCXT-formatted order::
+
+            {
+                "id": "ETH_long",
+                "clientOrderId": None,
+                "timestamp": 1234567890000,
+                "datetime": "2021-01-01T00:00:00.000Z",
+                "lastTradeTimestamp": None,
+                "symbol": "ETH/USD",
+                "type": "market",
+                "side": "buy",
+                "price": 3350.0,
+                "amount": 10.5,
+                "cost": 35175.0,
+                "average": 3350.0,
+                "filled": 10.5,
+                "remaining": 0.0,
+                "status": "open",
+                "fee": None,
+                "trades": [],
+                "info": {...}
+            }
+        """
+        # Get timestamp (if available)
+        timestamp = self.milliseconds()
+
+        # Determine side from position
+        is_long = order.get('is_long', True)
+        side = 'buy' if is_long else 'sell'
+
+        # Get position size and prices
+        position_size_usd = self.safe_number(order, 'position_size')
+        entry_price = self.safe_number(order, 'entry_price')
+        mark_price = self.safe_number(order, 'mark_price')
+
+        # Calculate amount in base currency
+        amount = None
+        if position_size_usd and entry_price and entry_price > 0:
+            amount = position_size_usd / entry_price
+
+        # Get position key as order ID
+        order_id = order.get('position_key', 'unknown')
+
+        return {
+            'id': order_id,
+            'clientOrderId': None,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'lastTradeTimestamp': timestamp,
+            'symbol': self.safe_string(market, 'symbol'),
+            'type': 'market',  # GMX primarily uses market orders
+            'timeInForce': None,
+            'postOnly': False,
+            'side': side,
+            'price': entry_price or mark_price,
+            'stopPrice': None,
+            'amount': amount,
+            'cost': position_size_usd,
+            'average': entry_price or mark_price,
+            'filled': amount,  # Assume fully filled for market orders
+            'remaining': 0.0,
+            'status': 'open',
+            'fee': None,
+            'trades': [],
+            'info': order
+        }
+
+    def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = None) -> list[dict]:
+        """
+        Fetch open orders (positions) for the account.
+
+        In GMX, open positions are treated as "open orders".
+        Requires user_wallet_address to be set in GMXConfig.
+
+        :param symbol: Filter by symbol (optional)
+        :param since: Not used (GMX returns current positions)
+        :param limit: Maximum number of orders to return
+        :param params: Optional parameters
+            - wallet_address: Override default wallet address
+        :return: List of CCXT-formatted orders
+
+        Example::
+
+            # Initialize with wallet address
+            config = GMXConfig(web3, user_wallet_address="0x...")
+            gmx = GMXCCXT(config)
+            orders = gmx.fetch_open_orders()
+            eth_orders = gmx.fetch_open_orders(symbol="ETH/USD")
+        """
+        params = params or {}
+        self.load_markets()
+
+        # Get wallet address
+        wallet = params.get('wallet_address', self.config.user_wallet_address)
+        if not wallet:
+            raise ValueError("wallet_address must be provided in GMXConfig or params")
+
+        # Import and use GetOpenPositions
+        from eth_defi.gmx.core.open_positions import GetOpenPositions
+
+        # Fetch open positions
+        positions_manager = GetOpenPositions(self.config)
+        positions = positions_manager.get_data(wallet)
+
+        # Parse to CCXT orders
+        result = []
+        for position_key, position_data in positions.items():
+            try:
+                # Find matching market
+                market_symbol = position_data.get('market_symbol', '')
+                unified_symbol = f"{market_symbol}/USD"
+
+                # Skip if filtering by symbol
+                if symbol and unified_symbol != symbol:
+                    continue
+
+                # Get market info
+                if unified_symbol in self.markets:
+                    market = self.markets[unified_symbol]
+                else:
+                    # Create minimal market if not found
+                    market = {'symbol': unified_symbol}
+
+                # Add position key to data for ID
+                position_data['position_key'] = position_key
+
+                # Parse position as order
+                order = self.parse_order(position_data, market)
+                result.append(order)
+
+            except Exception:
+                # Skip positions we can't parse
+                pass
+
+        # Apply limit
+        if limit:
+            result = result[:limit]
+
+        return result
+
+    def fetch_my_trades(self, symbol: str = None, since: int = None, limit: int = None, params: dict = None) -> list[dict]:
+        """
+        Fetch user's trade history.
+
+        Returns position changes (opens/closes) for the account.
+        Requires user_wallet_address to be set in GMXConfig.
+
+        :param symbol: Filter by symbol (optional)
+        :param since: Timestamp in milliseconds to fetch trades from
+        :param limit: Maximum number of trades to return
+        :param params: Optional parameters
+            - wallet_address: Override default wallet address
+        :return: List of CCXT-formatted trades
+
+        Example::
+
+            config = GMXConfig(web3, user_wallet_address="0x...")
+            gmx = GMXCCXT(config)
+            trades = gmx.fetch_my_trades(limit=50)
+
+            # Filter by symbol
+            eth_trades = gmx.fetch_my_trades(symbol="ETH/USD")
+        """
+        params = params or {}
+        self.load_markets()
+
+        # Get wallet address
+        wallet = params.get('wallet_address', self.config.user_wallet_address)
+        if not wallet:
+            raise ValueError("wallet_address must be provided in GMXConfig or params")
+
+        # Convert since to seconds if provided
+        since_seconds = int(since / 1000) if since else None
+
+        # Fetch position changes from Subsquid
+        position_changes = self.subsquid.get_position_changes(
+            account_address=wallet,
+            from_timestamp=since_seconds,
+            limit=limit or 100
+        )
+
+        # Parse each position change as a trade
+        trades = []
+        for change in position_changes:
+            try:
+                # Find market
+                market_address = change.get('market')
+                market = None
+
+                # Search for matching market
+                for symbol_key, market_info in self.markets.items():
+                    if market_info['info']['market_token'].lower() == market_address.lower():
+                        market = market_info
+                        break
+
+                if market is None:
+                    continue
+
+                # Skip if filtering by symbol
+                if symbol and market['symbol'] != symbol:
+                    continue
+
+                # Parse trade
+                trade = self.parse_trade(change, market)
+                trades.append(trade)
+
+            except Exception:
+                # Skip trades we can't parse
+                pass
+
+        # Sort by timestamp descending
+        trades.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        # Apply limit
+        if limit:
+            trades = trades[:limit]
+
+        return trades
 
     def parse_ohlcv(
         self,

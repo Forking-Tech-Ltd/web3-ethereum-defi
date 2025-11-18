@@ -65,6 +65,14 @@ class GMXCCXT:
     - ``fetch_open_orders(symbol)`` - List open positions as orders
     - ``fetch_my_trades(symbol, since, limit)`` - User trade history
 
+    **Position Management (Phase 3):**
+
+    - ``fetch_positions(symbols)`` - Get detailed position information with metrics
+    - ``set_leverage(leverage, symbol)`` - Configure leverage settings
+    - ``fetch_leverage(symbol)`` - Query leverage configuration
+    - ``add_margin(symbol, amount)`` - Add collateral to position (not implemented)
+    - ``reduce_margin(symbol, amount)`` - Remove collateral from position (not implemented)
+
     **GMX Limitations:**
 
     - No ``fetch_order_book()`` - GMX uses liquidity pools, not order books
@@ -124,6 +132,10 @@ class GMXCCXT:
             "4h": "4h",
             "1d": "1d",
         }
+
+        # Leverage storage for position management
+        # Maps symbol to leverage multiplier (e.g., {"ETH/USD": 5.0})
+        self.leverage: dict[str, float] = {}
 
     def load_markets(self, reload: bool = False) -> dict[str, Any]:
         """Load available markets from GMX protocol.
@@ -1564,6 +1576,138 @@ class GMXCCXT:
             'info': order
         }
 
+    def parse_position(self, position: dict, market: dict = None) -> dict:
+        """
+        Parse position data to CCXT format.
+
+        :param position: Position data from GMX
+        :param market: Market structure
+        :return: CCXT-formatted position::
+
+            {
+                "id": "ETH_long_0x123...",
+                "symbol": "ETH/USD",
+                "timestamp": 1234567890000,
+                "datetime": "2021-01-01T00:00:00.000Z",
+                "isolated": False,
+                "hedged": False,
+                "side": "long",
+                "contracts": 10.5,
+                "contractSize": 1,
+                "entryPrice": 3350.0,
+                "markPrice": 3400.0,
+                "notional": 35700.0,
+                "leverage": 5.0,
+                "collateral": 7140.0,
+                "initialMargin": 7140.0,
+                "maintenanceMargin": 357.0,
+                "initialMarginPercentage": 0.20,
+                "maintenanceMarginPercentage": 0.01,
+                "unrealizedPnl": 525.0,
+                "liquidationPrice": 2680.0,
+                "marginRatio": 0.05,
+                "percentage": 7.35,
+                "info": {...}
+            }
+        """
+        # Get timestamp
+        timestamp = self.milliseconds()
+
+        # Determine side from position
+        is_long = position.get('is_long', True)
+        side = 'long' if is_long else 'short'
+
+        # Get position size and prices
+        position_size_usd = self.safe_number(position, 'position_size')
+        entry_price = self.safe_number(position, 'entry_price')
+        mark_price = self.safe_number(position, 'mark_price')
+        collateral_amount = self.safe_number(position, 'collateralAmount')
+
+        # Calculate contracts (amount in base currency)
+        contracts = None
+        if position_size_usd and entry_price and entry_price > 0:
+            contracts = position_size_usd / entry_price
+
+        # Calculate notional (current position value)
+        notional = None
+        if contracts and mark_price:
+            notional = contracts * mark_price
+
+        # Calculate leverage
+        leverage = None
+        if position_size_usd and collateral_amount and collateral_amount > 0:
+            leverage = position_size_usd / collateral_amount
+
+        # Calculate unrealized PnL
+        unrealized_pnl = None
+        percentage = self.safe_number(position, 'percent_profit')
+        if position_size_usd and percentage is not None:
+            unrealized_pnl = position_size_usd * (percentage / 100)
+
+        # Estimate liquidation price
+        # GMX liquidation happens when losses exceed ~90% of collateral
+        liquidation_price = None
+        if entry_price and collateral_amount and position_size_usd and position_size_usd > 0:
+            # Calculate max loss before liquidation (90% of collateral)
+            max_loss = collateral_amount * 0.9
+            # Calculate price change that causes max loss
+            price_change_ratio = max_loss / position_size_usd
+            if is_long:
+                # For long: liquidation when price drops
+                liquidation_price = entry_price * (1 - price_change_ratio)
+            else:
+                # For short: liquidation when price rises
+                liquidation_price = entry_price * (1 + price_change_ratio)
+
+        # Calculate margin ratio (used margin / total position value)
+        margin_ratio = None
+        if collateral_amount and notional and notional > 0:
+            margin_ratio = collateral_amount / notional
+
+        # Initial margin equals collateral for GMX
+        initial_margin = collateral_amount
+
+        # Maintenance margin (approximate - GMX uses ~1% of position size)
+        maintenance_margin = None
+        if position_size_usd:
+            maintenance_margin = position_size_usd * 0.01
+
+        # Margin percentages
+        initial_margin_percentage = None
+        if leverage:
+            initial_margin_percentage = 1.0 / leverage
+
+        maintenance_margin_percentage = 0.01  # GMX typically uses 1%
+
+        # Get position key as ID
+        position_id = position.get('position_key', 'unknown')
+
+        return {
+            'id': position_id,
+            'symbol': self.safe_string(market, 'symbol') if market else None,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'isolated': False,  # GMX uses cross margin
+            'hedged': False,  # GMX doesn't support hedging mode
+            'side': side,
+            'contracts': contracts,
+            'contractSize': 1,  # 1 contract = 1 unit of base currency
+            'entryPrice': entry_price,
+            'markPrice': mark_price,
+            'notional': notional,
+            'leverage': leverage,
+            'collateral': collateral_amount,
+            'initialMargin': initial_margin,
+            'maintenanceMargin': maintenance_margin,
+            'initialMarginPercentage': initial_margin_percentage,
+            'maintenanceMarginPercentage': maintenance_margin_percentage,
+            'unrealizedPnl': unrealized_pnl,
+            'liquidationPrice': liquidation_price,
+            'marginRatio': margin_ratio,
+            'percentage': percentage,
+            'info': position
+        }
+
     def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = None) -> list[dict]:
         """
         Fetch open orders (positions) for the account.
@@ -1715,6 +1859,230 @@ class GMXCCXT:
             trades = trades[:limit]
 
         return trades
+
+    def fetch_positions(self, symbols: list[str] = None, params: dict = None) -> list[dict]:
+        """
+        Fetch all open positions for the account.
+
+        Returns detailed position information with full metrics (leverage, PnL, liquidation price, etc.).
+        Requires user_wallet_address to be set in GMXConfig.
+
+        :param symbols: Filter by list of symbols (optional)
+        :param params: Optional parameters
+            - wallet_address: Override default wallet address
+        :return: List of CCXT-formatted positions
+
+        Example::
+
+            config = GMXConfig(web3, user_wallet_address="0x...")
+            gmx = GMXCCXT(config)
+
+            # Fetch all positions
+            positions = gmx.fetch_positions()
+
+            # Filter specific symbols
+            positions = gmx.fetch_positions(symbols=["ETH/USD", "BTC/USD"])
+
+            # Access position details
+            for pos in positions:
+                print(f"{pos['symbol']}: {pos['side']} {pos['contracts']} @ {pos['entryPrice']}")
+                print(f"  Leverage: {pos['leverage']}x")
+                print(f"  PnL: ${pos['unrealizedPnl']:.2f} ({pos['percentage']:.2f}%)")
+                print(f"  Liquidation: ${pos['liquidationPrice']:.2f}")
+        """
+        params = params or {}
+        self.load_markets()
+
+        # Get wallet address
+        wallet = params.get('wallet_address', self.config.user_wallet_address)
+        if not wallet:
+            raise ValueError("wallet_address must be provided in GMXConfig or params")
+
+        # Import and use GetOpenPositions
+        from eth_defi.gmx.core.open_positions import GetOpenPositions
+
+        # Fetch open positions
+        positions_manager = GetOpenPositions(self.config)
+        positions = positions_manager.get_data(wallet)
+
+        # Parse to CCXT positions
+        result = []
+        for position_key, position_data in positions.items():
+            try:
+                # Find matching market
+                market_symbol = position_data.get('market_symbol', '')
+                unified_symbol = f"{market_symbol}/USD"
+
+                # Skip if filtering by symbols
+                if symbols and unified_symbol not in symbols:
+                    continue
+
+                # Get market info
+                if unified_symbol in self.markets:
+                    market = self.markets[unified_symbol]
+                else:
+                    # Create minimal market if not found
+                    market = {'symbol': unified_symbol}
+
+                # Add position key to data for ID
+                position_data['position_key'] = position_key
+
+                # Parse position
+                position = self.parse_position(position_data, market)
+                result.append(position)
+
+            except Exception:
+                # Skip positions we can't parse
+                pass
+
+        return result
+
+    def set_leverage(self, leverage: float, symbol: str = None, params: dict = None) -> dict:
+        """
+        Set leverage for a symbol (or all symbols if not specified).
+
+        Note: This only stores leverage settings locally for future order creation.
+        GMX leverage is set per-position when creating the order, not globally.
+
+        :param leverage: Leverage multiplier (e.g., 5.0 for 5x leverage)
+        :param symbol: Symbol to set leverage for (e.g., "ETH/USD"). If None, sets default for all symbols
+        :param params: Optional parameters (reserved for future use)
+        :return: Leverage info dictionary
+
+        Example::
+
+            gmx = GMXCCXT(config)
+
+            # Set leverage for specific symbol
+            gmx.set_leverage(5.0, "ETH/USD")
+
+            # Set default leverage for all symbols
+            gmx.set_leverage(10.0)
+        """
+        params = params or {}
+
+        # Validate leverage
+        if leverage < 1.0:
+            raise ValueError(f"Leverage must be >= 1.0, got {leverage}")
+        if leverage > 100.0:
+            raise ValueError(f"Leverage cannot exceed 100x, got {leverage}")
+
+        if symbol:
+            # Set leverage for specific symbol
+            self.leverage[symbol] = leverage
+            return {
+                'symbol': symbol,
+                'leverage': leverage,
+                'info': {'message': f'Leverage set to {leverage}x for {symbol}'}
+            }
+        else:
+            # Set default leverage (stored with key '*')
+            self.leverage['*'] = leverage
+            return {
+                'symbol': '*',
+                'leverage': leverage,
+                'info': {'message': f'Default leverage set to {leverage}x for all symbols'}
+            }
+
+    def fetch_leverage(self, symbol: str = None, params: dict = None) -> dict | list[dict]:
+        """
+        Get current leverage setting(s).
+
+        Returns stored leverage configuration. If no leverage has been set,
+        returns default of 1.0 (no leverage).
+
+        :param symbol: Symbol to get leverage for. If None, returns all leverage settings
+        :param params: Optional parameters (reserved for future use)
+        :return: Leverage info dictionary or list of dictionaries
+
+        Example::
+
+            gmx = GMXCCXT(config)
+
+            # Get leverage for specific symbol
+            info = gmx.fetch_leverage("ETH/USD")
+            print(f"ETH/USD leverage: {info['leverage']}x")
+
+            # Get all leverage settings
+            all_leverage = gmx.fetch_leverage()
+        """
+        params = params or {}
+
+        if symbol:
+            # Get leverage for specific symbol
+            leverage = self.leverage.get(symbol)
+            if leverage is None:
+                # Try to get default leverage
+                leverage = self.leverage.get('*', 1.0)
+
+            return {
+                'symbol': symbol,
+                'leverage': leverage,
+                'info': {}
+            }
+        else:
+            # Return all leverage settings
+            result = []
+            for sym, lev in self.leverage.items():
+                result.append({
+                    'symbol': sym,
+                    'leverage': lev,
+                    'info': {}
+                })
+
+            # If no settings, return default
+            if not result:
+                result.append({
+                    'symbol': '*',
+                    'leverage': 1.0,
+                    'info': {'message': 'No leverage settings configured, using default 1.0x'}
+                })
+
+            return result
+
+    def add_margin(self, symbol: str, amount: float, params: dict = None) -> dict:
+        """
+        Add margin to an existing position.
+
+        Note: This method is not yet implemented and requires GMX contract integration.
+
+        :param symbol: Symbol of the position (e.g., "ETH/USD")
+        :param amount: Amount of collateral to add (in USD)
+        :param params: Optional parameters
+        :raises NotImplementedError: Method requires GMX contract integration
+
+        Example::
+
+            # This will raise NotImplementedError
+            gmx.add_margin("ETH/USD", 1000.0)
+        """
+        raise NotImplementedError(
+            "add_margin() requires GMX smart contract integration. "
+            "This method will be implemented in a future update when "
+            "GMX trading contract methods are added to the library."
+        )
+
+    def reduce_margin(self, symbol: str, amount: float, params: dict = None) -> dict:
+        """
+        Remove margin from an existing position.
+
+        Note: This method is not yet implemented and requires GMX contract integration.
+
+        :param symbol: Symbol of the position (e.g., "ETH/USD")
+        :param amount: Amount of collateral to remove (in USD)
+        :param params: Optional parameters
+        :raises NotImplementedError: Method requires GMX contract integration
+
+        Example::
+
+            # This will raise NotImplementedError
+            gmx.reduce_margin("ETH/USD", 500.0)
+        """
+        raise NotImplementedError(
+            "reduce_margin() requires GMX smart contract integration. "
+            "This method will be implemented in a future update when "
+            "GMX trading contract methods are added to the library."
+        )
 
     def parse_ohlcv(
         self,

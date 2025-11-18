@@ -1283,20 +1283,28 @@ class GMXCCXT:
         market_address = market["info"]["market_token"]
 
         # Fetch position changes from Subsquid
-        # Convert since from milliseconds to seconds if provided
-        since_seconds = int(since / 1000) if since else None
-
+        # Note: Subsquid client doesn't support market or timestamp filtering
+        # We fetch all and filter manually
         position_changes = self.subsquid.get_position_changes(
-            market_address=market_address,
-            from_timestamp=since_seconds,
             limit=limit or 100
         )
 
-        # Parse each position change as a trade
+        # Parse each position change as a trade, filtering by market
         trades = []
         for change in position_changes:
             try:
+                # Check if this change is for the requested market
+                change_market = change.get('market', '').lower()
+                if change_market != market_address.lower():
+                    continue
+
                 trade = self.parse_trade(change, market)
+
+                # Filter by timestamp if 'since' is provided
+                if since and trade.get('timestamp'):
+                    if trade['timestamp'] < since:
+                        continue
+
                 trades.append(trade)
             except Exception:
                 # Skip trades we can't parse
@@ -1812,13 +1820,10 @@ class GMXCCXT:
         if not wallet:
             raise ValueError("wallet_address must be provided in GMXConfig or params")
 
-        # Convert since to seconds if provided
-        since_seconds = int(since / 1000) if since else None
-
         # Fetch position changes from Subsquid
+        # Note: Subsquid client doesn't support timestamp filtering, so we fetch and filter manually
         position_changes = self.subsquid.get_position_changes(
-            account_address=wallet,
-            from_timestamp=since_seconds,
+            account=wallet,
             limit=limit or 100
         )
 
@@ -1845,6 +1850,12 @@ class GMXCCXT:
 
                 # Parse trade
                 trade = self.parse_trade(change, market)
+
+                # Filter by timestamp if 'since' is provided
+                if since and trade.get('timestamp'):
+                    if trade['timestamp'] < since:
+                        continue
+
                 trades.append(trade)
 
             except Exception:

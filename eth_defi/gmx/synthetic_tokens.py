@@ -19,12 +19,19 @@ from eth_typing import HexAddress
 logger = logging.getLogger(__name__)
 
 #: GMX API endpoints for different chains
-GMX_API_ENDPOINTS: dict[int, str] = {
+#: Each chain can have multiple endpoints (primary and fallbacks)
+GMX_API_ENDPOINTS: dict[int, list[str]] = {
     # API source: https://gmx-docs.io/docs/api/rest-v2
-    # Arbitrum
-    42161: "https://arbitrum-api.gmxinfra.io/tokens",
-    # Avalanche
-    43114: "https://avalanche-api.gmxinfra.io/tokens",
+    # Arbitrum - primary and backup endpoints
+    42161: [
+        "https://arbitrum-api.gmxinfra.io/tokens",
+        "https://arbitrum-api.gmx.io/tokens",  # Backup endpoint
+    ],
+    # Avalanche - primary and backup endpoints
+    43114: [
+        "https://avalanche-api.gmxinfra.io/tokens",
+        "https://avalanche-api.gmx.io/tokens",  # Backup endpoint
+    ],
 }
 
 #: Default cache for GMX token details
@@ -206,28 +213,45 @@ def fetch_gmx_synthetic_tokens(
                 for token_data in cached_tokens
             ]
 
-    # Fetch fresh data from API
-    api_url = GMX_API_ENDPOINTS[chain_id]
-    logger.info("Fetching GMX tokens from API: %s", api_url)
+    # Fetch fresh data from API with fallback support
+    api_urls = GMX_API_ENDPOINTS[chain_id]
+    last_error = None
 
-    try:
-        response = requests.get(api_url, timeout=timeout)
-        response.raise_for_status()
+    # Try each endpoint in order (primary first, then fallbacks)
+    for api_url in api_urls:
+        logger.info("Fetching GMX tokens from API: %s", api_url)
 
-        api_data = response.json()
+        try:
+            response = requests.get(api_url, timeout=timeout)
+            response.raise_for_status()
 
-        # Validate API response structure
-        if "tokens" not in api_data:
-            raise GMXTokenFetchError(f"Invalid API response: missing 'tokens' field")
+            api_data = response.json()
 
-        tokens_data = api_data["tokens"]
-        if not isinstance(tokens_data, list):
-            raise GMXTokenFetchError(f"Invalid API response: 'tokens' should be a list")
+            # Validate API response structure
+            if "tokens" not in api_data:
+                raise GMXTokenFetchError(f"Invalid API response: missing 'tokens' field")
 
-    except requests.RequestException as e:
-        raise GMXTokenFetchError(f"Failed to fetch GMX tokens from {api_url}: {e}") from e
-    except json.JSONDecodeError as e:
-        raise GMXTokenFetchError(f"Invalid JSON response from {api_url}: {e}") from e
+            tokens_data = api_data["tokens"]
+            if not isinstance(tokens_data, list):
+                raise GMXTokenFetchError(f"Invalid API response: 'tokens' should be a list")
+
+            # Success! Break out of the retry loop
+            logger.info("Successfully fetched GMX tokens from %s", api_url)
+            break
+
+        except requests.RequestException as e:
+            last_error = e
+            logger.warning("Failed to fetch GMX tokens from %s: %s", api_url, e)
+            continue
+        except json.JSONDecodeError as e:
+            last_error = e
+            logger.warning("Invalid JSON response from %s: %s", api_url, e)
+            continue
+    else:
+        # All endpoints failed
+        raise GMXTokenFetchError(
+            f"Failed to fetch GMX tokens from all endpoints {api_urls}. Last error: {last_error}"
+        ) from last_error
 
     # Parse and validate token data
     tokens = []

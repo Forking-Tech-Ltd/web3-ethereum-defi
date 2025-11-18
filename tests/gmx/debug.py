@@ -89,7 +89,7 @@ LARGE_WETH_HOLDER = to_checksum_address("0x70d95587d40A2caf56bd97485aB3Eec10Bee6
 # console.print(f"[dim]  WETH: ${weth_api_price / 10**12:.2f} (Long: ${weth_price_long / 10**12:.2f}, Short: ${weth_price_short / 10**12:.2f})[/dim]")
 # console.print(f"[dim]  USDC: ${usdc_api_price / 10**24:.6f} (no buffer)[/dim]")
 
-MOCK_ETH_PRICE = 3450  # weth_price_long // 10**12 # 3450  # USD
+MOCK_ETH_PRICE = 3892  # USD - matches actual market price at fork block 392496384
 MOCK_USDC_PRICE = 1  # USD
 
 

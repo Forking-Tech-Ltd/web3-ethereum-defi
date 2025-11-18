@@ -33,8 +33,11 @@ from eth_typing import HexAddress
 from eth_defi.utils import addr
 
 # Fork configuration constants
+# Block 392496384 chosen to match real mainnet transaction for accurate price comparison
+# Reference tx: 0x68a77542fd9ba2bcd342099158dd17c0918cee70726ecd2e2446b0f16c46da50
+# Oracle price at this block: 0xdd631636455a0 = $3,892.32
 FORK_BLOCK_ARBITRUM = 392496384
-MOCK_ETH_PRICE = 3450  # USD
+MOCK_ETH_PRICE = 3892  # USD - MUST match actual market price at fork block for GMX validation
 MOCK_USDC_PRICE = 1  # USD
 
 # Set up logging for debugging
@@ -467,11 +470,13 @@ def _setup_mock_oracle(web3: Web3, eth_price: int) -> str:
 
 @pytest.fixture()
 def mock_oracle_fork(web3_arbitrum_fork: Web3) -> str:
-    """Set up mock oracle for fork testing with default ETH price (3450).
+    """Set up mock oracle for fork testing with default ETH price (3892).
 
     Replaces the production Chainlink oracle with a mock oracle that allows
     setting custom prices for testing. This is required for fork testing since
     the real Chainlink oracle may not work on forked chains.
+
+    Price matches the actual market price at fork block 392496384 to pass GMX validation.
 
     Returns:
         Address of the mock oracle provider
@@ -481,17 +486,17 @@ def mock_oracle_fork(web3_arbitrum_fork: Web3) -> str:
 
 @pytest.fixture()
 def mock_oracle_fork_short(web3_arbitrum_fork: Web3) -> str:
-    """Set up mock oracle for short position testing with ETH price at 3550.
+    """Set up mock oracle for short position testing with ETH price at 3892.
 
     Returns:
         Address of the mock oracle provider
     """
-    return _setup_mock_oracle(web3_arbitrum_fork, 3550)
+    return _setup_mock_oracle(web3_arbitrum_fork, MOCK_ETH_PRICE)
 
 
 @pytest.fixture()
 def mock_oracle_fork_open_close(web3_arbitrum_fork: Web3) -> str:
-    """Set up fresh mock oracle for open/close position testing with ETH price at 3450.
+    """Set up fresh mock oracle for open/close position testing with ETH price at 3892.
 
     Returns:
         Address of the mock oracle provider
@@ -1235,11 +1240,11 @@ def arbitrum_fork_config(
     mock_oracle_fork,
 ) -> GMXConfig:
     """
-    GMX config for Arbitrum mainnet fork with funded wallet and mock oracle (ETH price: 3450).
+    GMX config for Arbitrum mainnet fork with funded wallet and mock oracle (ETH price: 3892).
     Used for long position tests.
 
     This fixture:
-    - Sets up mock oracle for price feeds with ETH at 3450
+    - Sets up mock oracle for price feeds with ETH at 3892 (actual market price at fork block)
     - Creates a HotWallet from anvil default private key
     - Funds the wallet with all needed tokens (via wallet_with_all_tokens)
     - Approves tokens for GMX routers
@@ -1256,7 +1261,7 @@ def arbitrum_fork_config_short(
     mock_oracle_fork_short,
 ) -> GMXConfig:
     """
-    GMX config for Arbitrum mainnet fork with mock oracle set to ETH price 3550.
+    GMX config for Arbitrum mainnet fork with mock oracle set to ETH price 3892.
     Used for short position tests.
     """
     return _create_fork_config(web3_arbitrum_fork, anvil_private_key, wallet_with_all_tokens)
@@ -1270,7 +1275,7 @@ def arbitrum_fork_config_open_close(
     mock_oracle_fork_open_close,
 ) -> GMXConfig:
     """
-    GMX config for Arbitrum mainnet fork with fresh mock oracle (ETH price: 3450).
+    GMX config for Arbitrum mainnet fork with fresh mock oracle (ETH price: 3892).
     Used for open/close position tests.
     """
     return _create_fork_config(web3_arbitrum_fork, anvil_private_key, wallet_with_all_tokens)
